@@ -7,7 +7,7 @@ use std::io::prelude::*;
 use std::fs::File;
 use std::path::Path;
 use docopt::Docopt;
-// use bip_bencode::{BencodeRef, BRefAccess, BDecodeOpt};
+use bip_bencode::{BencodeRef, BRefAccess, BDecodeOpt};
 
 const USAGE: &'static str = "
 Usage: bittles <torrent>
@@ -39,8 +39,17 @@ fn inner() -> Result<(),Box<Error>> {
     let mut f = File::open(torrent_path)?;
     f.read_to_end(&mut buf).unwrap();
 
-    for x in buf {
-        println!("{}", x);
+    let res = BencodeRef::decode(buf.as_slice(), BDecodeOpt::default())?;
+
+    // println!("{:?}", res);
+
+    // res.dict()?.lookup("announce")?
+
+    
+    for kv in res.dict().ok_or("no top dict")?.to_list() {
+        let k = kv.0;
+        println!("{}", std::str::from_utf8(k)?);
     }
+
     Ok(())
 }
