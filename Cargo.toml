@@ -4,3 +4,6 @@ version = "0.1.0"
 authors = ["Miles Steele <miles@milessteele.com>"]
 
 [dependencies]
+docopt = "0.7.0"
+rustc-serialize = "0.3"
+bip_bencode = "0.3.0"
