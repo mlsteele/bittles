@@ -1,10 +1,12 @@
-use std::error::Error;
-use ring::rand::SystemRandom;
 use metainfo::*;
+use ring::rand::SystemRandom;
+use std::error::Error;
 
 struct TrackerClient {}
 
 impl TrackerClient {
+    pub fn new(metainfo: &MetaInfo) -> Result<TrackerClient,Box<Error>> {
+    }
 }
 
 pub const PEERID_SIZE: usize = 20;

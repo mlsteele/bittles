@@ -1,6 +1,6 @@
-use std::error::Error;
 use bip_bencode::{BencodeRef, BRefAccess};
 use ring::digest;
+use std::error::Error;
 
 pub const INFOHASH_SIZE: usize = 20;
 pub type InfoHash = [u8; INFOHASH_SIZE];

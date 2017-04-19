@@ -1,22 +1,23 @@
-extern crate docopt;
-extern crate rustc_serialize;
 extern crate bip_bencode;
-extern crate ring;
+extern crate docopt;
+extern crate hyper;
 extern crate itertools;
+extern crate ring;
+extern crate rustc_serialize;
 
 mod metainfo;
 mod tracker;
 
-use metainfo::*;
-use tracker::*;
-use std::error::Error;
-use std::io::prelude::*;
-use std::fs::File;
-use std::path::Path;
-use docopt::Docopt;
 use bip_bencode::{BencodeRef, BDecodeOpt};
-use ring::rand::SystemRandom;
+use docopt::Docopt;
 use itertools::Itertools;
+use metainfo::*;
+use ring::rand::SystemRandom;
+use std::error::Error;
+use std::fs::File;
+use std::io::prelude::*;
+use std::path::Path;
+use tracker::*;
 
 const USAGE: &'static str = "
 Usage: bittles <torrent>
