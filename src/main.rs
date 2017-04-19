@@ -2,12 +2,15 @@ extern crate docopt;
 extern crate rustc_serialize;
 extern crate bip_bencode;
 
+mod metainfo;
+
+use metainfo::*;
 use std::error::Error;
 use std::io::prelude::*;
 use std::fs::File;
 use std::path::Path;
 use docopt::Docopt;
-use bip_bencode::{BencodeRef, BRefAccess, BDecodeOpt};
+use bip_bencode::{BencodeRef, BDecodeOpt};
 
 const USAGE: &'static str = "
 Usage: bittles <torrent>
@@ -41,15 +44,8 @@ fn inner() -> Result<(),Box<Error>> {
 
     let res = BencodeRef::decode(buf.as_slice(), BDecodeOpt::default())?;
 
-    // println!("{:?}", res);
-
-    // res.dict()?.lookup("announce")?
-
-    
-    for kv in res.dict().ok_or("no top dict")?.to_list() {
-        let k = kv.0;
-        println!("{}", std::str::from_utf8(k)?);
-    }
+    let info = MetaInfo::new(res);
+    println!("{:?}", info);
 
     Ok(())
 }
