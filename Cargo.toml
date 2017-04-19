@@ -7,3 +7,5 @@ authors = ["Miles Steele <miles@milessteele.com>"]
 docopt = "0.7.0"
 rustc-serialize = "0.3"
 bip_bencode = "0.3.0"
+ring = "0.7.5"
+itertools = "0.6.0"

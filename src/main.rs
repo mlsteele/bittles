@@ -1,16 +1,22 @@
 extern crate docopt;
 extern crate rustc_serialize;
 extern crate bip_bencode;
+extern crate ring;
+extern crate itertools;
 
 mod metainfo;
+mod tracker;
 
 use metainfo::*;
+use tracker::*;
 use std::error::Error;
 use std::io::prelude::*;
 use std::fs::File;
 use std::path::Path;
 use docopt::Docopt;
 use bip_bencode::{BencodeRef, BDecodeOpt};
+use ring::rand::SystemRandom;
+use itertools::Itertools;
 
 const USAGE: &'static str = "
 Usage: bittles <torrent>
@@ -46,6 +52,10 @@ fn inner() -> Result<(),Box<Error>> {
 
     let info = MetaInfo::new(res);
     println!("{:?}", info);
+
+    let rand = SystemRandom::new();
+    let peer_id = new_peer_id(&rand)?;
+    println!("peer_id: {:x}", peer_id.iter().format(""));
 
     Ok(())
 }
