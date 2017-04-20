@@ -59,8 +59,29 @@ impl TrackerClient {
     }
 
     fn build_req(&self, req: &TrackerRequest) -> Result<hyper::client::RequestBuilder,Box<Error>> {
-        // let http_req = self.get();
-        // let http_res = http_req.send()?
+        // let mut url = self.url.clone();
+        // let qp = url.query_pairs_mut().clear();
+        // qp.append_pair("info_hash", req.info_hash);
+        // qp.append_pair("peer_id", req.peer_id);
+        // qp.append_pair("port", req.port);
+        // qp.append_pair("uploaded", req.uploaded);
+        // qp.append_pair("downloaded", req.downloaded);
+        // qp.append_pair("left", req.left);
+        // if req.compact {
+        //     qp.append_pair("compact", "1");
+        // }
+        // if req.no_peer_id {
+        //     qp.append_pair("no_peer_id", "1");
+        // }
+        // match req.event {
+        //     Ok(_) => qp.append_pair("event", req.event.str())
+        // }
+        // qp.append_pair("ip", req.ip);
+        // qp.append_pair("numwant", req.numwant);
+        // qp.append_pair("key", req.key);
+        // qp.append_pair("trackerid", req.trackerid);
+        // let http_req = self.client.get(url);
+        // http_req
         Err("TODO")?
     }
 

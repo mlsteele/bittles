@@ -4,6 +4,7 @@ extern crate hyper;
 extern crate itertools;
 extern crate ring;
 extern crate rustc_serialize;
+extern crate url;
 
 mod metainfo;
 mod tracker;
@@ -29,10 +30,33 @@ struct Args {
 }
 
 fn main() {
-    match inner() {
+    match inner2() {
         Ok(_) => {}
         Err(e) => println!("ERROR: {}", e)
     }
+}
+
+fn inner2() -> Result<(),Box<Error>> {
+    let x: [u8; 20] = [18, 52, 86, 120, 154, 188, 222, 241, 35, 69, 103, 137, 171, 205, 239, 18, 52, 86, 120, 154];
+    let y = format!("{:x}", x.iter().format(""));
+    println!("{}", y);
+
+    let z = url::percent_encoding::percent_encode(&x, url::percent_encoding::QUERY_ENCODE_SET).collect::<String>();
+    println!("{}", z);
+
+    assert_eq!("%124Vx%9A%BC%DE%F1%23Eg%89%AB%CD%EF%124Vx%9A", z);
+
+    let mut url = hyper::Url::parse("http://example.com/announce")?;
+    {
+        let mut qp = url.query_pairs_mut();
+        qp.clear();
+        // qp.append_pair("info_hash", "asdlfkjskd\u{00cc}f");
+        qp.append_pair("info_hash", &z);
+    }
+
+    println!("{:?}", url);
+
+    Ok(())
 }
 
 fn inner() -> Result<(),Box<Error>> {
