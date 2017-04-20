@@ -51,12 +51,17 @@ fn inner() -> Result<(),Box<Error>> {
 
     let res = BencodeRef::decode(buf.as_slice(), BDecodeOpt::default())?;
 
-    let info = MetaInfo::new(res);
+    let info = MetaInfo::new(res)?;
     println!("{:?}", info);
 
     let rand = SystemRandom::new();
     let peer_id = new_peer_id(&rand)?;
     println!("peer_id: {:x}", peer_id.iter().format(""));
+
+    let tc = TrackerClient::new(&rand, info.clone(), peer_id)?;
+    println!("trackerclient: {:?}", tc);
+
+    println!("tracker res: {:?}", tc.easy_start()?);
 
     Ok(())
 }

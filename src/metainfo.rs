@@ -14,10 +14,10 @@ pub fn make_info_hash(src: &[u8]) -> Result<InfoHash,Box<Error>> {
 
 // MetaInfo of a torrent.
 // Loaded from a torrent file.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MetaInfo {
-    announce: String,
-    info_hash: InfoHash,
+    pub announce: String,
+    pub info_hash: InfoHash,
 }
 
 impl MetaInfo {

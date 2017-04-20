@@ -1,11 +1,75 @@
+use hyper::Url;
+use hyper;
 use metainfo::*;
 use ring::rand::SystemRandom;
 use std::error::Error;
+use std::io::Read;
+use std::time::Duration;
 
-struct TrackerClient {}
+// Client to talk to a tracker
+#[derive(Debug)]
+pub struct TrackerClient {
+    metainfo: MetaInfo,
+    peer_id: PeerID,
+    url: Url,
+    client: hyper::client::Client,
+    trackerid: Option<String>,
+}
 
 impl TrackerClient {
-    pub fn new(metainfo: &MetaInfo) -> Result<TrackerClient,Box<Error>> {
+    pub fn new(rand: &SystemRandom, metainfo: MetaInfo, peer_id: PeerID) -> Result<TrackerClient,Box<Error>> {
+        let url = Url::parse(&metainfo.announce)?;
+        let mut client = hyper::client::Client::new();
+        client.set_read_timeout(Some(Duration::from_secs(10)));
+        client.set_write_timeout(Some(Duration::from_secs(10)));
+        Ok(TrackerClient {
+            metainfo: metainfo,
+            peer_id: peer_id,
+            url: url,
+            client: client,
+            trackerid: None,
+        })
+    }
+
+    pub fn easy_start(&self) -> Result<TrackerResponse,Box<Error>> {
+        let req = TrackerRequest {
+            info_hash: self.metainfo.info_hash,
+            peer_id: self.peer_id,
+            port: 6881, // TODO this is not true
+            uploaded: 0,
+            downloaded: 0,
+            left: 0, // TODO
+            compact: true,
+            no_peer_id: false,
+            event: TrackerEvent::Started,
+            ip: None,
+            numwant: Some(4),
+            key: None,
+            trackerid: None,
+        };
+        self.request(&req)
+    }
+
+    fn request(&self, req: &TrackerRequest) -> Result<TrackerResponse,Box<Error>> {
+        let http_req = self.build_req(req)?;
+        let mut http_res = http_req.send()?;
+        let res = self.parse_res(&mut http_res)?;
+        // TODO store trackerid if present.
+        Ok(res)
+    }
+
+    fn build_req(&self, req: &TrackerRequest) -> Result<hyper::client::RequestBuilder,Box<Error>> {
+        // let http_req = self.get();
+        // let http_res = http_req.send()?
+        Err("TODO")?
+    }
+
+    fn parse_res(&self, http_res: &mut hyper::client::response::Response) -> Result<TrackerResponse,Box<Error>> {
+        let mut buf = String::new();
+        http_res.read_to_string(&mut buf)?;
+        Ok(TrackerResponse {
+            res: buf,
+        })
     }
 }
 
@@ -61,6 +125,7 @@ struct TrackerRequest {
 }
 
 // The tracker responds with "text/plain" document consisting of a bencoded dictionary
+#[derive(Debug)]
 struct TrackerResponse {
-    // TODO
+    res: String,
 }
