@@ -137,7 +137,7 @@ fn inner() -> Result<(),Box<Error>> {
     let peer_id = new_peer_id(&rand)?;
     println!("peer_id: {:x}", peer_id.iter().format(""));
 
-    let tc = TrackerClient::new(info.clone(), peer_id)?;
+    let mut tc = TrackerClient::new(info.clone(), peer_id)?;
     println!("trackerclient: {:?}", tc);
 
     println!("tracker res: {:?}", tc.easy_start()?);

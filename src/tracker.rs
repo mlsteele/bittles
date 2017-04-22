@@ -15,7 +15,7 @@ pub struct TrackerClient {
     peer_id: PeerID,
     url: Url,
     client: hyper::client::Client,
-    trackerid: Option<String>,
+    tracker_id: Option<String>,
     user_agent: String,
 }
 
@@ -30,12 +30,12 @@ impl TrackerClient {
             peer_id: peer_id,
             url: url,
             client: client,
-            trackerid: None,
+            tracker_id: None,
             user_agent: "Bittles/0.01 rust-lang".to_string(),
         })
     }
 
-    pub fn easy_start(&self) -> Result<TrackerResponse> {
+    pub fn easy_start(&mut self) -> Result<TrackerResponse> {
         let req = TrackerRequest {
             info_hash: self.metainfo.info_hash,
             peer_id: self.peer_id,
@@ -49,16 +49,21 @@ impl TrackerClient {
             ip: None,
             numwant: Some(4),
             key: None,
-            trackerid: None,
+            tracker_id: None,
         };
         self.request(&req)
     }
 
-    fn request(&self, req: &TrackerRequest) -> Result<TrackerResponse> {
-        let http_req = self.build_req(req)?;
-        let mut http_res = http_req.send()?;
-        let res = self.parse_res(&mut http_res)?;
-        // TODO store trackerid if present.
+    fn request(&mut self, req: &TrackerRequest) -> Result<TrackerResponse> {
+        let res = {
+            let http_req = self.build_req(req)?;
+            let mut http_res = http_req.send()?;
+            self.parse_res(&mut http_res)?
+        };
+
+        // Store the tracker id if given
+        self.tracker_id = res.tracker_id.clone().or(self.tracker_id.take());
+
         Ok(res)
     }
 
@@ -89,8 +94,8 @@ impl TrackerClient {
         if let Some(ref key) = req.key {
             qps.push("key", key);
         }
-        if let Some(ref trackerid) = req.trackerid {
-            qps.push("trackerid", trackerid);
+        if let Some(ref tracker_id) = req.tracker_id {
+            qps.push("trackerid", tracker_id);
         }
 
         let mut url = self.url.clone();
@@ -195,7 +200,7 @@ pub struct TrackerRequest {
     ip: Option<String>, // Outwardly-reachable IP of the client
     numwant: Option<i64>, // Number of peers requested
     key: Option<String>, // Identifier for this client with the tracker
-    trackerid: Option<String>, // If a previous announce contained a tracker id, it should be set here
+    tracker_id: Option<String>, // If a previous announce contained a tracker id, it should be set here
 }
 
 // The tracker responds with "text/plain" document consisting of a bencoded dictionary
