@@ -8,6 +8,7 @@ extern crate url;
 
 mod metainfo;
 mod tracker;
+mod util;
 
 use bip_bencode::{BencodeRef, BDecodeOpt};
 use docopt::Docopt;
@@ -19,6 +20,7 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
 use tracker::*;
+use util::{replace_query_parameters, QueryParameters};
 
 const USAGE: &'static str = "
 Usage: bittles <torrent>
@@ -30,31 +32,83 @@ struct Args {
 }
 
 fn main() {
-    match inner2() {
+    match inner() {
         Ok(_) => {}
         Err(e) => println!("ERROR: {}", e)
     }
 }
 
+#[allow(dead_code)]
 fn inner2() -> Result<(),Box<Error>> {
     let x: [u8; 20] = [18, 52, 86, 120, 154, 188, 222, 241, 35, 69, 103, 137, 171, 205, 239, 18, 52, 86, 120, 154];
     let y = format!("{:x}", x.iter().format(""));
-    println!("{}", y);
+    println!("hex: {}", y);
 
     let z = url::percent_encoding::percent_encode(&x, url::percent_encoding::QUERY_ENCODE_SET).collect::<String>();
-    println!("{}", z);
+    println!("url encoded: {}", z);
 
     assert_eq!("%124Vx%9A%BC%DE%F1%23Eg%89%AB%CD%EF%124Vx%9A", z);
 
-    let mut url = hyper::Url::parse("http://example.com/announce")?;
     {
-        let mut qp = url.query_pairs_mut();
-        qp.clear();
-        // qp.append_pair("info_hash", "asdlfkjskd\u{00cc}f");
-        qp.append_pair("info_hash", &z);
+        let mut url = hyper::Url::parse("http://example.com/announce")?;
+        {
+            let mut qp = url.query_pairs_mut();
+            qp.clear();
+            // qp.append_pair("info_hash", "asdlfkjskd\u{00cc}f");
+            qp.append_pair("info_hash", &z);
+        }
+
+        println!("url qpm: {:?}", url);
     }
 
-    println!("{:?}", url);
+    {
+        let mut url = hyper::Url::parse("http://example.com/announce")?;
+        url.set_query(Some(&format!("info_hash={}", z)));
+        println!("url s-q: {:?}", url);
+    }
+
+    {
+        let mut url = hyper::Url::parse("http://example.com/announce")?;
+        replace_query_parameters(&mut url,
+                                 &[("info_hash", x)]
+        );
+        println!("url uuz: {:?}", url);
+    }
+
+    {
+        let mut url = hyper::Url::parse("http://example.com/announce")?;
+        let mut qps = QueryParameters::new();
+        qps.push("info_hash", x);
+        qps.apply(&mut url);
+        println!("url uub: {:?}", url);
+    }
+
+    Ok(())
+}
+
+#[allow(dead_code)]
+fn inner3() -> Result<(),Box<Error>> {
+    // ubuntu info hash
+    let x: [u8; 20] = [52, 147, 6, 116, 239, 59, 185, 49, 127, 181, 242, 99, 204, 168, 48, 245, 38, 133, 35, 91];
+    let y = format!("{:x}", x.iter().format(""));
+    println!("hex: {}", y);
+
+    let reference = "4%93%06t%EF%3B%B91%7F%B5%F2c%CC%A80%F5%26%85%23%5B";
+
+    // let z = url::percent_encoding::percent_encode(&x, url::percent_encoding::QUERY_ENCODE_SET).collect::<String>();
+    let z = url::form_urlencoded::byte_serialize(&x).collect::<String>();
+    println!("        ref: {}", reference);
+    println!("url encoded: {}", z);
+
+    assert_eq!(reference, z);
+
+    {
+        let mut url = hyper::Url::parse("http://example.com/announce")?;
+        let mut qps = QueryParameters::new();
+        qps.push("info_hash", x);
+        qps.apply(&mut url);
+        println!("url uub: {:?}", url);
+    }
 
     Ok(())
 }
@@ -82,7 +136,7 @@ fn inner() -> Result<(),Box<Error>> {
     let peer_id = new_peer_id(&rand)?;
     println!("peer_id: {:x}", peer_id.iter().format(""));
 
-    let tc = TrackerClient::new(&rand, info.clone(), peer_id)?;
+    let tc = TrackerClient::new(info.clone(), peer_id)?;
     println!("trackerclient: {:?}", tc);
 
     println!("tracker res: {:?}", tc.easy_start()?);

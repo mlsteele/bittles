@@ -5,6 +5,7 @@ use ring::rand::SystemRandom;
 use std::error::Error;
 use std::io::Read;
 use std::time::Duration;
+use util::{QueryParameters};
 
 // Client to talk to a tracker
 #[derive(Debug)]
@@ -17,7 +18,7 @@ pub struct TrackerClient {
 }
 
 impl TrackerClient {
-    pub fn new(rand: &SystemRandom, metainfo: MetaInfo, peer_id: PeerID) -> Result<TrackerClient,Box<Error>> {
+    pub fn new(metainfo: MetaInfo, peer_id: PeerID) -> Result<TrackerClient,Box<Error>> {
         let url = Url::parse(&metainfo.announce)?;
         let mut client = hyper::client::Client::new();
         client.set_read_timeout(Some(Duration::from_secs(10)));
@@ -59,35 +60,49 @@ impl TrackerClient {
     }
 
     fn build_req(&self, req: &TrackerRequest) -> Result<hyper::client::RequestBuilder,Box<Error>> {
-        // let mut url = self.url.clone();
-        // let qp = url.query_pairs_mut().clear();
-        // qp.append_pair("info_hash", req.info_hash);
-        // qp.append_pair("peer_id", req.peer_id);
-        // qp.append_pair("port", req.port);
-        // qp.append_pair("uploaded", req.uploaded);
-        // qp.append_pair("downloaded", req.downloaded);
-        // qp.append_pair("left", req.left);
-        // if req.compact {
-        //     qp.append_pair("compact", "1");
-        // }
-        // if req.no_peer_id {
-        //     qp.append_pair("no_peer_id", "1");
-        // }
-        // match req.event {
-        //     Ok(_) => qp.append_pair("event", req.event.str())
-        // }
-        // qp.append_pair("ip", req.ip);
-        // qp.append_pair("numwant", req.numwant);
-        // qp.append_pair("key", req.key);
-        // qp.append_pair("trackerid", req.trackerid);
-        // let http_req = self.client.get(url);
-        // http_req
-        Err("TODO")?
+        // TODO set user agent
+        let mut qps = QueryParameters::new();
+        qps.push("info_hash", req.info_hash);
+        qps.push("peer_id", req.peer_id);
+        qps.push_num("port", req.port);
+        qps.push_num("uploaded", req.uploaded);
+        qps.push_num("downloaded", req.downloaded);
+        qps.push_num("left", req.left);
+        if req.compact {
+            qps.push("compact", "1");
+        }
+        if req.no_peer_id {
+            qps.push("no_peer_id", "1");
+        }
+        if let Some(ev) = req.event.str() {
+            qps.push("event", ev);
+        }
+        if let Some(ref ip) = req.ip {
+            qps.push("ip", ip);
+        }
+        if let Some(numwant) = req.numwant {
+            qps.push_num("numwant", numwant);
+        }
+        if let Some(ref key) = req.key {
+            qps.push("key", key);
+        }
+        if let Some(ref trackerid) = req.trackerid {
+            qps.push("trackerid", trackerid);
+        }
+
+        let mut url = self.url.clone();
+        qps.apply(&mut url);
+        println!("url: {}", url);
+        // http://requestb.in/12ucjm91?info_hash=4%93%06t%EF;%B91%7F%B5%F2c%CC%A80%F5&%85%23[&peer_id=-BI0001%7F%FB)%B9e%D6%81U0%D3(%F70&port=6881&uploaded=0&downloaded=0&left=0&compact=1&event=started&numwant=4
+
+        let http_req = self.client.get(url);
+        Ok(http_req)
     }
 
     fn parse_res(&self, http_res: &mut hyper::client::response::Response) -> Result<TrackerResponse,Box<Error>> {
         let mut buf = String::new();
         http_res.read_to_string(&mut buf)?;
+        println!("http_res: {:?}", http_res);
         Ok(TrackerResponse {
             res: buf,
         })
@@ -110,6 +125,8 @@ pub fn new_peer_id(rand: &SystemRandom) -> Result<PeerID,Box<Error>> {
     Ok(id)
 }
 
+#[derive(Clone, Copy)]
+#[allow(dead_code)]
 enum TrackerEvent {
     Started,
     Stopped,
@@ -118,18 +135,18 @@ enum TrackerEvent {
 }
 
 impl TrackerEvent {
-    pub fn str(&self) -> Option<String> {
+    pub fn str(self) -> Option<String> {
         match self {
-            Started => Some("started".to_string()),
-            Stopped => Some("stopped".to_string()),
-            Completed => Some("completed".to_string()),
-            Periodical => None,
+            TrackerEvent::Started => Some("started".to_string()),
+            TrackerEvent::Stopped => Some("stopped".to_string()),
+            TrackerEvent::Completed => Some("completed".to_string()),
+            TrackerEvent::Periodical => None,
         }
     }
 }
 
 // Parameters used in the client->tracker GET request
-struct TrackerRequest {
+pub struct TrackerRequest {
     info_hash: InfoHash, // Hash of the 'info' section of the torrent file
     peer_id: PeerID, // Randomly generated peer id
     port: i64, // Port the client is listening. Typically in [6881-6889]
@@ -147,6 +164,6 @@ struct TrackerRequest {
 
 // The tracker responds with "text/plain" document consisting of a bencoded dictionary
 #[derive(Debug)]
-struct TrackerResponse {
+pub struct TrackerResponse {
     res: String,
 }
