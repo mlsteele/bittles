@@ -1,4 +1,5 @@
 extern crate bip_bencode;
+extern crate byteorder;
 extern crate docopt;
 extern crate hyper;
 extern crate itertools;
@@ -140,7 +141,7 @@ fn inner() -> Result<(),Box<Error>> {
     let mut tc = TrackerClient::new(info.clone(), peer_id)?;
     println!("trackerclient: {:?}", tc);
 
-    println!("tracker res: {:?}", tc.easy_start()?);
+    println!("tracker res: {:#?}", tc.easy_start()?);
 
     Ok(())
 }

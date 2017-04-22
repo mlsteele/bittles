@@ -4,10 +4,11 @@ version = "0.1.0"
 authors = ["Miles Steele <miles@milessteele.com>"]
 
 [dependencies]
-docopt = "0.7.0"
-rustc-serialize = "0.3"
 bip_bencode = "0.3.0"
-ring = "0.7.5"
-itertools = "0.6.0"
+byteorder = "1.0.0"
+docopt = "0.7.0"
 hyper = "0.10.8"
+itertools = "0.6.0"
+ring = "0.7.5"
+rustc-serialize = "0.3"
 url = "1.4.0"

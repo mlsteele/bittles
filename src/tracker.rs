@@ -1,10 +1,12 @@
 use bip_bencode::{BencodeRef, BDecodeOpt, BRefAccess, BDictAccess};
+use byteorder::{ByteOrder,BigEndian};
+use error::{Error,Result};
 use hyper::Url;
 use hyper;
 use metainfo::*;
 use ring::rand::SystemRandom;
-use error::{Error,Result};
 use std::io::Read;
+use std::net;
 use std::time::Duration;
 use util::{QueryParameters};
 
@@ -76,9 +78,7 @@ impl TrackerClient {
         qps.push_num("uploaded", req.uploaded);
         qps.push_num("downloaded", req.downloaded);
         qps.push_num("left", req.left);
-        if req.compact {
-            qps.push("compact", "1");
-        }
+        qps.push("compact", if req.compact {"1"} else {"0"});
         if req.no_peer_id {
             qps.push("no_peer_id", "1");
         }
@@ -125,8 +125,42 @@ impl TrackerClient {
                                 .ok_or(Error::new_str("missing 'complete'"))?,
             incomplete:      lookup_i64(bd, "incomplete".as_bytes())?
                                 .ok_or(Error::new_str("missing 'incomplete'"))?,
-            peers:           Vec::new(), // TODO
+            peers:           self.parse_peers(bd)?, // TODO
         })
+    }
+
+    /// Parse the peers list from a complete tracker response bdict.
+    fn parse_peers(&self, bd: &BDictAccess<BencodeRef>) -> Result<Vec<Peer>> {
+        let peers = bd.lookup("peers".as_bytes()).ok_or(Error::new_str("missing 'peers'"))?;
+        if let Some(_) = peers.dict() {
+            return Err(Error::new_str("Reading peers as 'dict' not implemented"));
+        }
+        if let Some(_) = peers.str() {
+            return Err(Error::new_str("Reading peers as 'str' not implemented"));
+        }
+        if let Some(_) = peers.list() {
+            return Err(Error::new_str("Reading peers as 'list' not implemented"));
+        }
+        if let Some(peers) = peers.bytes() {
+            // peers: (binary model)
+            // multiples of 6 bytes.
+            // First 4 bytes are the IP address and last 2 bytes are the port number.
+            // All in network (big endian) notation.
+            // TODO is this handling endianness right?
+            if peers.len() % 6 != 0 {
+                return Err(Error::new_str("Peers 'byte' representation not 6*n bytes"));
+            }
+            return Ok(peers.chunks(6).map(|chunk| {
+                let (bytes_ip, bytes_port) = chunk.split_at(4);
+                let port = BigEndian::read_u16(bytes_port);
+                let ip = net::Ipv4Addr::new(bytes_ip[0], bytes_ip[1], bytes_ip[2], bytes_ip[3]);
+                Peer {
+                    peer_id: None,
+                    address: net::SocketAddr::V4(net::SocketAddrV4::new(ip, port)),
+                }
+            }).collect())
+        }
+        Err(Error::new_str(&format!("wrong type for 'peers': {:?}", peers)))
     }
 }
 
@@ -220,7 +254,6 @@ pub struct TrackerResponse {
 // Contains a peer_id if not in compact form.
 #[derive(Debug)]
 struct Peer {
-    peer_id: Option<PeerID>, // peer's self-selected ID, as described above for the tracker request (string)
-    ip: String, // peer's IP address either IPv6 (hexed) or IPv4 (dotted quad) or DNS name (string)
-    port: i64, // peer's port number (integer)
+    peer_id: Option<PeerID>, // peer's self-selected ID, as described above for the tracker request
+    address: net::SocketAddr,
 }
