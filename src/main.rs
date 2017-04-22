@@ -6,6 +6,7 @@ extern crate ring;
 extern crate rustc_serialize;
 extern crate url;
 
+mod error;
 mod metainfo;
 mod tracker;
 mod util;
