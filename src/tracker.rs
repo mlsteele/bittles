@@ -9,6 +9,7 @@ use std::io::Read;
 use std::net;
 use std::time::Duration;
 use util::{QueryParameters};
+use peer::PeerID;
 
 // Client to talk to a tracker
 #[derive(Debug)]
@@ -182,22 +183,6 @@ fn lookup_i64<'a>(dict: &'a BDictAccess<BencodeRef>, key: &'a [u8]) -> Result<Op
         },
         None => Ok(None),
     }
-}
-
-pub const PEERID_SIZE: usize = 20;
-pub type PeerID = [u8; PEERID_SIZE];
-
-pub fn new_peer_id(rand: &SystemRandom) -> Result<PeerID> {
-    let mut id = [0; PEERID_SIZE];
-    rand.fill(&mut id)?;
-    id[0] = '-' as u8;
-    id[1] = 'B' as u8;
-    id[2] = 'I' as u8;
-    id[3] = '0' as u8;
-    id[4] = '0' as u8;
-    id[5] = '0' as u8;
-    id[6] = '1' as u8;
-    Ok(id)
 }
 
 #[derive(Clone, Copy)]

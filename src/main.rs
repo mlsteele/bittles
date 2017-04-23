@@ -11,11 +11,13 @@ mod error;
 mod metainfo;
 mod tracker;
 mod util;
+mod peer;
 
 use bip_bencode::{BencodeRef, BDecodeOpt};
 use docopt::Docopt;
 use itertools::Itertools;
 use metainfo::*;
+use peer::{new_peer_id};
 use ring::rand::SystemRandom;
 use std::error::Error;
 use std::fs::File;

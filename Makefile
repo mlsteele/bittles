@@ -8,3 +8,6 @@ run:
 
 doc-local:
 	cargo rustdoc --open -- --no-defaults --passes collapse-docs --passes unindent-comments --passes strip-priv-imports
+
+doc-local-no-open:
+	cargo rustdoc -- --no-defaults --passes collapse-docs --passes unindent-comments --passes strip-priv-imports
