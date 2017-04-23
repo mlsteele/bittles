@@ -1,5 +1,6 @@
+use byteorder::{ByteOrder,BigEndian};
 use hyper::Url;
-// use url::percent_encoding::{percent_encode, QUERY_ENCODE_SET};
+use std::io;
 use url::form_urlencoded;
 
 fn encode(x: &[u8]) -> String {
@@ -76,3 +77,26 @@ pub fn replace_query_parameters<K, V>(url: &mut Url, query_parameters: &[(K, V)]
     }
     url.set_query(Some(&s));
 }
+
+pub trait ReadWire: io::Read {
+    fn read_u32(&mut self) -> io::Result<u32>;
+}
+
+impl<R> ReadWire for R
+    where R: io::Read
+{
+    fn read_u32(&mut self) -> io::Result<u32> {
+        let mut buf = [0; 4];
+        self.read_exact(&mut buf)?;
+        Ok(BigEndian::read_u32(&buf))
+    }
+}
+
+macro_rules! matches(
+    ($e:expr, $p:pat) => (
+        match $e {
+            $p => true,
+            _ => false
+        }
+    )
+);

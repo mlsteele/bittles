@@ -10,6 +10,7 @@ extern crate url;
 mod error;
 mod metainfo;
 mod tracker;
+#[macro_use]
 mod util;
 mod peer;
 

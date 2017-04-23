@@ -4,7 +4,6 @@ use error::{Error,Result};
 use hyper::Url;
 use hyper;
 use metainfo::*;
-use ring::rand::SystemRandom;
 use std::io::Read;
 use std::net;
 use std::time::Duration;

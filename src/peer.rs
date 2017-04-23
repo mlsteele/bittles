@@ -5,6 +5,8 @@ use ring::rand::SystemRandom;
 use std::io::Read;
 use std::io;
 use std::net;
+use std::cmp;
+use util::ReadWire;
 
 pub const PEERID_SIZE: usize = 20;
 pub type PeerID = [u8; PEERID_SIZE];
@@ -34,19 +36,45 @@ pub struct PeerClient {
     am_interested: bool,
 }
 
-fn read_message<T: io::Read>(stream: &mut T) -> Result<DataMessage> {
-    let message_length = {
+fn read_message<T: io::Read>(stream: &mut T) -> Result<Message> {
+    use peer::Message::*;
+    // Message length including ID. Not including its own 4 bytes.
+    let message_length = stream.read_u32()?;
+    if message_length == 0 {
+        return Ok(KeepAlive);
+    }
+    if message_length < 4 {
+        return Err(Error::new_str(&format!("message length ({}) less than 4", message_length)));
+    }
+    let message_id = {
         let mut buf = [0; 4];
         stream.read_exact(&mut buf)?;
         BigEndian::read_u32(&buf)
     };
     let data: Vec<u8> = {
-        let mut buf = Vec::new();
-        let mut sub = stream.take(message_length as u64);
-        sub.read_to_end(&mut buf)?;
-        buf
+        let data_length = cmp::max(0, message_length - 4); // subtract 4 for the message_id
+        if data_length <= 0 {
+            Vec::new()
+        } else {
+            let mut buf = Vec::new();
+            let mut sub = stream.take(data_length as u64);
+            sub.read_to_end(&mut buf)?;
+            buf
+        }
     };
-    Ok(DataMessage{ data: data })
+    match message_id {
+        0 => Ok(Choke),
+        1 => Ok(Unchoke),
+        2 => Ok(Interested),
+        3 => Ok(NotInterested),
+        // 4 => Ok(Have),
+        // 5 => Ok(Bitfield),
+        // 6 => Ok(Request),
+        // 7 => Ok(Piece),
+        // 8 => Ok(Cancel),
+        // 9 => Ok(Port),
+        _ => Err(Error::new_str(&format!("unrecognized message id {}", message_id))),
+    }
 }
 
 #[cfg(test)]
@@ -55,28 +83,23 @@ mod tests {
 
     #[test]
     fn test_read_message() {
-        let sample = vec![0, 0, 0, 3, 1, 2, 3, 0, 0, 0, 5, 11, 12, 13, 14, 15, 9, 9, 9, 9, 9];
+        let sample = vec![0, 0, 0, 4, 0, 0, 0, 2,
+                          0, 0, 0, 4, 0, 0, 0, 1,
+                          9, 9];
         let mut reader = sample.as_slice();
         {
-            let d = read_message(&mut reader).unwrap();
-            assert_eq!(d.data, vec![1, 2, 3]);
-        } {
-            let d = read_message(&mut reader).unwrap();
-            assert_eq!(d.data, vec![11, 12, 13, 14, 15]);
+            let m = read_message(&mut reader).unwrap();
+            assert!(matches!(m, Message::Interested));
+        }
+        {
+            let m = read_message(&mut reader).unwrap();
+            assert!(matches!(m, Message::Unchoke));
         }
     }
 }
 
-pub struct DataMessage {
-    data: Vec<u8>,
-}
-
 // In version 1.0 of the BitTorrent protocol, pstrlen = 19, and pstr = "BitTorrent protocol".
 const HANDSHAKE_PROTOCOL: &'static str = "BitTorrent protocol";
-
-// trait Message {
-//     fn encode(&self) -> Result<&[u8]>;
-// }
 
 pub enum Message {
     KeepAlive,
@@ -84,67 +107,45 @@ pub enum Message {
     Unchoke,
     Interested,
     NotInterested,
-    Have,
-    Bitfield,
-    Request,
-    Piece,
-    Cancel,
-    Port,
+    Have {
+        /// Piece index
+        piece: i64,
+    },
+    Bitfield {
+        /// One bool per piece. True means the peer has the complete piece.
+        bits: Box<[bool]>,
+    },
+    Request {
+        /// Piece index
+        piece: i64, // (index)
+        /// Offset within the piece
+        offset: i64, // (begin)
+        /// Length in bytes
+        length: i64,
+    },
+    Piece {
+        /// Piece index
+        piece: i64, // (index)
+        /// Offset within the piece
+        offset: i64, // (begin)
+        /// Block data
+        block: Box<[u8]>,
+    },
+    Cancel {
+        /// Piece index
+        piece: i64, // (index)
+        /// Offset within the piece
+        offset: i64, // (begin)
+        /// Length in bytes
+        length: i64,
+    },
+    Port {
+        /// The listen port is the port this peer's DHT node is listening on.
+        port: i64,
+    },
 }
 
 pub struct Handshake {
     info_hash: InfoHash,
     peer_id: PeerID,
-}
-
-pub struct KeepAlive {}
-
-pub struct Choke {}
-
-pub struct Unchoke {}
-
-pub struct Interested {}
-
-pub struct NotInterested {}
-
-pub struct Have {
-    /// Piece index
-    piece: i64,
-}
-
-pub struct Bitfield {
-    /// One bool per piece. True means the peer has the complete piece.
-    bits: [bool],
-}
-
-pub struct Request {
-    /// Piece index
-    piece: i64, // (index)
-    /// Offset within the piece
-    offset: i64, // (begin)
-    /// Length in bytes
-    length: i64,
-}
-
-pub struct Piece<'a> {
-    /// Piece index
-    piece: i64, // (index)
-    /// Offset within the piece
-    offset: i64, // (begin)
-    /// Block data
-    block: &'a [u8],
-}
-
-pub struct Cancel {
-    /// Piece index
-    piece: i64, // (index)
-    /// Offset within the piece
-    offset: i64, // (begin)
-    /// Length in bytes
-    length: i64,
-}
-
-pub struct Port {
-    /// The listen port is the port this peer's DHT node is listening on.
-    port: i64,
 }
