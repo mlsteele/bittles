@@ -186,7 +186,7 @@ fn lookup_i64<'a>(dict: &'a BDictAccess<BencodeRef>, key: &'a [u8]) -> Result<Op
 
 #[derive(Clone, Copy)]
 #[allow(dead_code)]
-enum TrackerEvent {
+pub enum TrackerEvent {
     Started,
     Stopped,
     Completed,
@@ -206,38 +206,38 @@ impl TrackerEvent {
 
 // Parameters used in the client->tracker GET request
 pub struct TrackerRequest {
-    info_hash: InfoHash, // Hash of the 'info' section of the torrent file
-    peer_id: PeerID, // Randomly generated peer id
-    port: i64, // Port the client is listening. Typically in [6881-6889]
-    uploaded: i64, // Bytes uploaded (since the client sent the 'started' event to the tracker)
-    downloaded: i64, // Bytes downloaded (since the client sent the 'started' event to the tracker)
-    left: i64, // Bytes left until 100% downloaded
-    compact: bool, // Support a compact response
-    no_peer_id: bool, // Response can omit peer id field in peers dictionary
-    event: TrackerEvent,
-    ip: Option<String>, // Outwardly-reachable IP of the client
-    numwant: Option<i64>, // Number of peers requested
-    key: Option<String>, // Identifier for this client with the tracker
-    tracker_id: Option<String>, // If a previous announce contained a tracker id, it should be set here
+    pub info_hash: InfoHash, // Hash of the 'info' section of the torrent file
+    pub peer_id: PeerID, // Randomly generated peer id
+    pub port: i64, // Port the client is listening. Typically in [6881-6889]
+    pub uploaded: i64, // Bytes uploaded (since the client sent the 'started' event to the tracker)
+    pub downloaded: i64, // Bytes downloaded (since the client sent the 'started' event to the tracker)
+    pub left: i64, // Bytes left until 100% downloaded
+    pub compact: bool, // Support a compact response
+    pub no_peer_id: bool, // Response can omit peer id field in peers dictionary
+    pub event: TrackerEvent,
+    pub ip: Option<String>, // Outwardly-reachable IP of the client
+    pub numwant: Option<i64>, // Number of peers requested
+    pub key: Option<String>, // Identifier for this client with the tracker
+    pub tracker_id: Option<String>, // If a previous announce contained a tracker id, it should be set here
 }
 
 // The tracker responds with "text/plain" document consisting of a bencoded dictionary
 #[derive(Debug)]
 pub struct TrackerResponse {
-    failure_reason: Option<String>, // If present, then no other keys may be present. The value is a human-readable error message as to why the request failed (string).
-    warning_message: Option<String>, // (new, optional) Similar to failure reason, but the response still gets processed normally. The warning message is shown just like an error.
-    interval: i64, // Interval in seconds that the client should wait between sending regular requests to the tracker
-    min_interval: Option<i64>, // (optional) Minimum announce interval. If present clients must not reannounce more frequently than this.
-    tracker_id: Option<String>, // A string that the client should send back on its next announcements. If absent and a previous announce sent a tracker id, do not discard the old value; keep using it.
-    complete: i64, // Number of peers with the entire file (seeders)
-    incomplete: i64, // Number of non-seeder peers (leechers)
-    peers: Vec<Peer>,
+    pub failure_reason: Option<String>, // If present, then no other keys may be present. The value is a human-readable error message as to why the request failed (string).
+    pub warning_message: Option<String>, // (new, optional) Similar to failure reason, but the response still gets processed normally. The warning message is shown just like an error.
+    pub interval: i64, // Interval in seconds that the client should wait between sending regular requests to the tracker
+    pub min_interval: Option<i64>, // (optional) Minimum announce interval. If present clients must not reannounce more frequently than this.
+    pub tracker_id: Option<String>, // A string that the client should send back on its next announcements. If absent and a previous announce sent a tracker id, do not discard the old value; keep using it.
+    pub complete: i64, // Number of peers with the entire file (seeders)
+    pub incomplete: i64, // Number of non-seeder peers (leechers)
+    pub peers: Vec<Peer>,
 }
 
 // A peer reported by the tracker.
 // Contains a peer_id if not in compact form.
-#[derive(Debug)]
-struct Peer {
-    peer_id: Option<PeerID>, // peer's self-selected ID, as described above for the tracker request
-    address: net::SocketAddr,
+#[derive(Debug, Clone)]
+pub struct Peer {
+    pub peer_id: Option<PeerID>, // peer's self-selected ID, as described above for the tracker request
+    pub address: net::SocketAddr,
 }

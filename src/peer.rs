@@ -41,7 +41,7 @@ pub struct PeerClient {
 const HANDSHAKE_PROTOCOL: &'static str = "BitTorrent protocol";
 
 /// Read the first half of the peer handshake.
-fn handshake_read_1<T: io::Read>(stream: &mut T) -> Result<InfoHash> {
+pub fn handshake_read_1<T: io::Read>(stream: &mut T) -> Result<InfoHash> {
     // Protocol string
     let pstrlen = stream.read_u8()?;
     let pstr = stream.read_n(pstrlen as u64)?;
@@ -59,7 +59,7 @@ fn handshake_read_1<T: io::Read>(stream: &mut T) -> Result<InfoHash> {
 }
 
 /// Read the last half of the peer handshake.
-fn handshake_read_2<T: io::Read>(stream: &mut T) -> Result<PeerID> {
+pub fn handshake_read_2<T: io::Read>(stream: &mut T) -> Result<PeerID> {
     // Peer id
     let mut peer_id: PeerID = [0; PEERID_SIZE];
     stream.read_exact(&mut peer_id)?;
@@ -69,7 +69,7 @@ fn handshake_read_2<T: io::Read>(stream: &mut T) -> Result<PeerID> {
 /// Sends one side of the peer handshake.
 /// Used both for starting and handling connections.
 /// Does not flush the stream.
-fn handshake_send<T: io::Write>(stream: &mut T, info_hash: InfoHash, peer_id: PeerID) -> Result<()> {
+pub fn handshake_send<T: io::Write>(stream: &mut T, info_hash: InfoHash, peer_id: PeerID) -> Result<()> {
     // Protocol string
     let pstr = HANDSHAKE_PROTOCOL.as_bytes();
     let pstrlen: u8 = pstr.len() as u8;

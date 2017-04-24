@@ -7,6 +7,7 @@ extern crate ring;
 extern crate rustc_serialize;
 extern crate url;
 
+mod downloader;
 mod error;
 mod metainfo;
 mod tracker;
@@ -16,6 +17,7 @@ mod peer;
 
 use bip_bencode::{BencodeRef, BDecodeOpt};
 use docopt::Docopt;
+use downloader::Downloader;
 use itertools::Itertools;
 use metainfo::*;
 use peer::{new_peer_id};
@@ -138,13 +140,10 @@ fn inner() -> Result<(),Box<Error>> {
     println!("{:?}", info);
 
     let rand = SystemRandom::new();
+
     let peer_id = new_peer_id(&rand)?;
     println!("peer_id: {:x}", peer_id.iter().format(""));
 
-    let mut tc = TrackerClient::new(info.clone(), peer_id)?;
-    println!("trackerclient: {:?}", tc);
-
-    println!("tracker res: {:#?}", tc.easy_start()?);
-
+    Downloader::start(info, peer_id)?;
     Ok(())
 }
