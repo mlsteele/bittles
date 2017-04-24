@@ -12,7 +12,8 @@ pub type Result<T> = result::Result<T, Error>;
 
 #[derive(Debug)]
 pub enum Error {
-    String(String),
+    Generic(String),
+    PeerProtocol(String),
     Ring(ring::error::Unspecified),
     Url(url::ParseError),
     Hyper(hyper::Error),
@@ -22,7 +23,11 @@ pub enum Error {
 
 impl Error {
     pub fn new_str(description: &str) -> Error {
-        Error::String(description.to_owned())
+        Error::Generic(description.to_owned())
+    }
+
+    pub fn new_peer(description: &str) -> Error {
+        Error::PeerProtocol(description.to_owned())
     }
 }
 
@@ -36,7 +41,8 @@ impl fmt::Display for Error {
 impl error::Error for Error {
     fn description(&self) -> &str {
         match self {
-            &Error::String(ref description) => description,
+            &Error::Generic(ref description) => description,
+            &Error::PeerProtocol(ref description) => description,
             &Error::Ring(ref error) => error.description(),
             &Error::Url(ref error) => error.description(),
             &Error::Hyper(ref error) => error.description(),

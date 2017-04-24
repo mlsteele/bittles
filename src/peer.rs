@@ -6,7 +6,8 @@ use std::io::Read;
 use std::io;
 use std::net;
 use std::cmp;
-use util::ReadWire;
+use util::{ReadWire,byte_to_bits};
+use metainfo::{INFOHASH_SIZE};
 
 pub const PEERID_SIZE: usize = 20;
 pub type PeerID = [u8; PEERID_SIZE];
@@ -36,44 +37,146 @@ pub struct PeerClient {
     am_interested: bool,
 }
 
+// In version 1.0 of the BitTorrent protocol, pstrlen = 19, and pstr = "BitTorrent protocol".
+const HANDSHAKE_PROTOCOL: &'static str = "BitTorrent protocol";
+
+/// Read the first half of the peer handshake.
+fn handshake_read_1<T: io::Read>(stream: &mut T) -> Result<InfoHash> {
+    // Protocol string
+    let pstrlen = stream.read_u8()?;
+    let pstr = stream.read_n(pstrlen as u64)?;
+    if pstr != HANDSHAKE_PROTOCOL.as_bytes() {
+        return Err(Error::new_peer(&format!("unrecognized protocol in handshake: {:?}", pstr)));
+    }
+
+    // 8 reserved bytes.
+    let _ = stream.read_n(8)?;
+
+    // Info hash
+    let mut info_hash: InfoHash = [0; INFOHASH_SIZE];
+    stream.read_exact(&mut info_hash)?;
+    Ok(info_hash)
+}
+
+/// Read the last half of the peer handshake.
+fn handshake_read_2<T: io::Read>(stream: &mut T) -> Result<PeerID> {
+    // Peer id
+    let mut peer_id: PeerID = [0; PEERID_SIZE];
+    stream.read_exact(&mut peer_id)?;
+    Ok(peer_id)
+}
+
+/// Sends one side of the peer handshake.
+/// Used both for starting and handling connections.
+/// Does not flush the stream.
+fn handshake_send<T: io::Write>(stream: &mut T, info_hash: InfoHash, peer_id: PeerID) -> Result<()> {
+    // Protocol string
+    let pstr = HANDSHAKE_PROTOCOL.as_bytes();
+    let pstrlen: u8 = pstr.len() as u8;
+    stream.write(&[pstrlen])?;
+    stream.write(pstr)?;
+
+    // 8 reserved bytes
+    stream.write(&[0; 8])?;
+
+    // Info hash
+    stream.write(&info_hash)?;
+
+    // Peer id
+    stream.write(&peer_id)?;
+
+    Ok(())
+}
+
 fn read_message<T: io::Read>(stream: &mut T) -> Result<Message> {
     use peer::Message::*;
+    const NUM_LEN: usize = 4;
     // Message length including ID. Not including its own 4 bytes.
-    let message_length = stream.read_u32()?;
+    let message_length: usize = stream.read_u32()? as usize;
     if message_length == 0 {
         return Ok(KeepAlive);
     }
-    if message_length < 4 {
-        return Err(Error::new_str(&format!("message length ({}) less than 4", message_length)));
+    if message_length < NUM_LEN {
+        return Err(Error::new_peer(&format!("message length ({}) less than 4", message_length)));
     }
-    let message_id = {
-        let mut buf = [0; 4];
-        stream.read_exact(&mut buf)?;
-        BigEndian::read_u32(&buf)
-    };
-    let data: Vec<u8> = {
-        let data_length = cmp::max(0, message_length - 4); // subtract 4 for the message_id
-        if data_length <= 0 {
-            Vec::new()
-        } else {
-            let mut buf = Vec::new();
-            let mut sub = stream.take(data_length as u64);
-            sub.read_to_end(&mut buf)?;
-            buf
+    let message_id = stream.read_u8()?;
+    if message_length == NUM_LEN {
+        return match message_id {
+            0 => Ok(Choke),
+            1 => Ok(Unchoke),
+            2 => Ok(Interested),
+            3 => Ok(NotInterested),
+            4 | 5 | 6 | 7 | 8 | 9 =>
+                Err(Error::new_peer(&format!("message id {} specified no body", message_id))),
+            _ => Err(Error::new_peer(&format!("unknown message id {} (no-body)", message_id))),
         }
-    };
+    }
+    let body_length: usize = message_length - NUM_LEN;
+    // Limit the stream to read to the end of this message.
+    let mut stream = stream.take(body_length as u64);
     match message_id {
-        0 => Ok(Choke),
-        1 => Ok(Unchoke),
-        2 => Ok(Interested),
-        3 => Ok(NotInterested),
-        // 4 => Ok(Have),
-        // 5 => Ok(Bitfield),
-        // 6 => Ok(Request),
-        // 7 => Ok(Piece),
-        // 8 => Ok(Cancel),
-        // 9 => Ok(Port),
-        _ => Err(Error::new_str(&format!("unrecognized message id {}", message_id))),
+        0 | 1 | 2 | 3 =>
+            Err(Error::new_peer(&format!("message id {} specified non-zero body", message_id))),
+        4 => {
+            if body_length != NUM_LEN {
+                return Err(Error::new_peer(&format!("message wrong size 'Have' {} != 4", body_length)));
+            }
+            Ok(Have {
+                piece: stream.read_u32()?
+            })
+        },
+        5 => {
+            let mut bits: Vec<bool> = Vec::new();
+            for byte in stream.read_n(body_length as u64)? {
+                bits.extend_from_slice(&byte_to_bits(byte));
+            }
+            Ok(Bitfield {
+                bits: Box::new(bits),
+            })
+        },
+        6 => {
+            if body_length != NUM_LEN * 3 {
+                return Err(Error::new_peer(&format!("message wrong size 'Request' {} != 12", body_length)));
+            }
+            Ok(Request {
+                piece: stream.read_u32()?,
+                offset: stream.read_u32()?,
+                length: stream.read_u32()?,
+            })
+        },
+        7 => {
+            if body_length < NUM_LEN * 2 {
+                return Err(Error::new_peer(&format!("message wrong size 'Piece' {} < 8", body_length)));
+            }
+            let piece = stream.read_u32()?;
+            let offset = stream.read_u32()?;
+            let mut block = Vec::new();
+            stream.read_to_end(&mut block)?;
+            Ok(Piece {
+                piece: piece,
+                offset: offset,
+                block: Box::new(block),
+            })
+        },
+        8 => {
+            if body_length != NUM_LEN * 3 {
+                return Err(Error::new_peer(&format!("message wrong size 'Cancel' {} != 12", body_length)));
+            }
+            Ok(Cancel {
+                piece: stream.read_u32()?,
+                offset: stream.read_u32()?,
+                length: stream.read_u32()?,
+            })
+        },
+        9 => {
+            if body_length != NUM_LEN {
+                return Err(Error::new_peer(&format!("message wrong size 'Port' {} != 4", body_length)));
+            }
+            Ok(Port {
+                port: stream.read_u32()?,
+            })
+        },
+        _ => Err(Error::new_peer(&format!("unknown message id {} (+body)", message_id))),
     }
 }
 
@@ -98,8 +201,10 @@ mod tests {
     }
 }
 
-// In version 1.0 of the BitTorrent protocol, pstrlen = 19, and pstr = "BitTorrent protocol".
-const HANDSHAKE_PROTOCOL: &'static str = "BitTorrent protocol";
+pub struct HandshakeResult {
+    info_hash: InfoHash,
+    peer_id: PeerID,
+}
 
 pub enum Message {
     KeepAlive,
@@ -109,43 +214,39 @@ pub enum Message {
     NotInterested,
     Have {
         /// Piece index
-        piece: i64,
+        piece: u32,
     },
     Bitfield {
         /// One bool per piece. True means the peer has the complete piece.
-        bits: Box<[bool]>,
+        /// There may be trailing false's.
+        bits: Box<Vec<bool>>,
     },
     Request {
         /// Piece index
-        piece: i64, // (index)
+        piece: u32, // (index)
         /// Offset within the piece
-        offset: i64, // (begin)
+        offset: u32, // (begin)
         /// Length in bytes
-        length: i64,
+        length: u32,
     },
     Piece {
         /// Piece index
-        piece: i64, // (index)
+        piece: u32, // (index)
         /// Offset within the piece
-        offset: i64, // (begin)
+        offset: u32, // (begin)
         /// Block data
-        block: Box<[u8]>,
+        block: Box<Vec<u8>>,
     },
     Cancel {
         /// Piece index
-        piece: i64, // (index)
+        piece: u32, // (index)
         /// Offset within the piece
-        offset: i64, // (begin)
+        offset: u32, // (begin)
         /// Length in bytes
-        length: i64,
+        length: u32,
     },
     Port {
         /// The listen port is the port this peer's DHT node is listening on.
-        port: i64,
+        port: u32,
     },
-}
-
-pub struct Handshake {
-    info_hash: InfoHash,
-    peer_id: PeerID,
 }

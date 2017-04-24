@@ -80,6 +80,8 @@ pub fn replace_query_parameters<K, V>(url: &mut Url, query_parameters: &[(K, V)]
 
 pub trait ReadWire: io::Read {
     fn read_u32(&mut self) -> io::Result<u32>;
+    fn read_u8(&mut self) -> io::Result<u8>;
+    fn read_n(&mut self, n: u64) -> io::Result<Vec<u8>>;
 }
 
 impl<R> ReadWire for R
@@ -90,6 +92,45 @@ impl<R> ReadWire for R
         self.read_exact(&mut buf)?;
         Ok(BigEndian::read_u32(&buf))
     }
+
+    fn read_u8(&mut self) -> io::Result<u8> {
+        let mut buf = [0; 1];
+        self.read_exact(&mut buf)?;
+        Ok(buf[0])
+    }
+
+    /// Read exactly n bytes into the returned vec
+    fn read_n(&mut self, n: u64) -> io::Result<Vec<u8>> {
+        use std::io::Read;
+        if n == 0 {
+            return Ok(Vec::new());
+        }
+        let mut buf = Vec::new();
+        let mut sub = self.take(n);
+        sub.read_to_end(&mut buf)?;
+        Ok(buf)
+    }
+}
+
+pub fn byte_to_bits(b: u8) -> [bool; 8] {
+    let mut b = b;
+    let mut z = [false; 8];
+    z[7] = b % 2 == 1;
+    b >>= 1;
+    z[6] = b % 2 == 1;
+    b >>= 1;
+    z[5] = b % 2 == 1;
+    b >>= 1;
+    z[4] = b % 2 == 1;
+    b >>= 1;
+    z[3] = b % 2 == 1;
+    b >>= 1;
+    z[2] = b % 2 == 1;
+    b >>= 1;
+    z[1] = b % 2 == 1;
+    b >>= 1;
+    z[0] = b % 2 == 1;
+    z
 }
 
 macro_rules! matches(
