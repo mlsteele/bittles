@@ -1,1 +1,2 @@
-target
+# Compiled files and executables
+/target/
