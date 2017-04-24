@@ -88,7 +88,7 @@ pub fn handshake_send<T: io::Write>(stream: &mut T, info_hash: InfoHash, peer_id
     Ok(())
 }
 
-fn read_message<T: io::Read>(stream: &mut T) -> Result<Message> {
+pub fn read_message<T: io::Read>(stream: &mut T) -> Result<Message> {
     use peer::Message::*;
     const NUM_LEN: usize = 4;
     // Message length including ID. Not including its own 4 bytes.
@@ -116,7 +116,7 @@ fn read_message<T: io::Read>(stream: &mut T) -> Result<Message> {
     let mut stream = stream.take(body_length as u64);
     match message_id {
         0 | 1 | 2 | 3 =>
-            Err(Error::new_peer(&format!("message id {} specified non-zero body", message_id))),
+            Err(Error::new_peer(&format!("message id {} specified non-zero body {}", message_id, body_length))),
         4 => {
             if body_length != NUM_LEN {
                 return Err(Error::new_peer(&format!("message wrong size 'Have' {} != 4", body_length)));
@@ -206,6 +206,7 @@ pub struct HandshakeResult {
     peer_id: PeerID,
 }
 
+#[derive(Debug)]
 pub enum Message {
     KeepAlive,
     Choke,
@@ -250,3 +251,17 @@ pub enum Message {
         port: u32,
     },
 }
+
+impl Message {
+    pub fn summarize(&self) -> String {
+        match self {
+            &Message::Bitfield { ref bits } => {
+                let total = bits.len();
+                let set = bits.iter().filter(|b| **b).count();
+                format!("Bitfield {{ total:{} set:{} }}", total, set)
+            },
+            _ => format!("{:?}", self),
+        }
+    }
+}
+
