@@ -39,7 +39,7 @@ impl TrackerClient {
 
     pub fn easy_start(&mut self) -> Result<TrackerResponse> {
         let req = TrackerRequest {
-            info_hash: self.metainfo.info_hash,
+            info_hash: self.metainfo.info_hash.clone(),
             peer_id: self.peer_id,
             port: 6881, // TODO this is not true
             uploaded: 0,
@@ -72,7 +72,7 @@ impl TrackerClient {
     fn build_req(&self, req: &TrackerRequest) -> Result<hyper::client::RequestBuilder> {
         // TODO set user agent
         let mut qps = QueryParameters::new();
-        qps.push("info_hash", req.info_hash);
+        qps.push("info_hash", req.info_hash.hash);
         qps.push("peer_id", req.peer_id);
         qps.push_num("port", req.port);
         qps.push_num("uploaded", req.uploaded);
@@ -146,7 +146,6 @@ impl TrackerClient {
             // multiples of 6 bytes.
             // First 4 bytes are the IP address and last 2 bytes are the port number.
             // All in network (big endian) notation.
-            // TODO is this handling endianness right?
             if peers.len() % 6 != 0 {
                 return Err(Error::new_str("Peers 'byte' representation not 6*n bytes"));
             }

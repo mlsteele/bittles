@@ -1,6 +1,7 @@
 use std::error;
 use std::fmt;
 use std::result;
+use std::str;
 
 use bip_bencode;
 use hyper;
@@ -19,6 +20,7 @@ pub enum Error {
     Hyper(hyper::Error),
     Io(io::Error),
     Bencode(bip_bencode::BencodeParseError),
+    Utf8(str::Utf8Error),
 }
 
 impl Error {
@@ -48,6 +50,7 @@ impl error::Error for Error {
             &Error::Hyper(ref error) => error.description(),
             &Error::Io(ref error) => error.description(),
             &Error::Bencode(ref error) => error.description(),
+            &Error::Utf8(ref error) => error.description(),
         }
     }
 }
@@ -79,5 +82,11 @@ impl From<io::Error> for Error {
 impl From<bip_bencode::BencodeParseError> for Error {
     fn from(err: bip_bencode::BencodeParseError) -> Error {
         Error::Bencode(err)
+    }
+}
+
+impl From<str::Utf8Error> for Error {
+    fn from(err: str::Utf8Error) -> Error {
+        Error::Utf8(err)
     }
 }

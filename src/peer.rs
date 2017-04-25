@@ -7,7 +7,7 @@ use std::io;
 use std::net;
 use std::cmp;
 use util::{ReadWire,byte_to_bits};
-use metainfo::{INFOHASH_SIZE};
+use metainfo::{INFO_HASH_SIZE};
 
 pub const PEERID_SIZE: usize = 20;
 pub type PeerID = [u8; PEERID_SIZE];
@@ -53,9 +53,9 @@ pub fn handshake_read_1<T: io::Read>(stream: &mut T) -> Result<InfoHash> {
     let _ = stream.read_n(8)?;
 
     // Info hash
-    let mut info_hash: InfoHash = [0; INFOHASH_SIZE];
+    let mut info_hash = [0; INFO_HASH_SIZE];
     stream.read_exact(&mut info_hash)?;
-    Ok(info_hash)
+    Ok(InfoHash { hash: info_hash })
 }
 
 /// Read the last half of the peer handshake.
@@ -80,7 +80,7 @@ pub fn handshake_send<T: io::Write>(stream: &mut T, info_hash: InfoHash, peer_id
     stream.write(&[0; 8])?;
 
     // Info hash
-    stream.write(&info_hash)?;
+    stream.write(&info_hash.hash)?;
 
     // Peer id
     stream.write(&peer_id)?;
@@ -131,7 +131,7 @@ pub fn read_message<T: io::Read>(stream: &mut T) -> Result<Message> {
                 bits.extend_from_slice(&byte_to_bits(byte));
             }
             Ok(Bitfield {
-                bits: Box::new(bits),
+                bits: bits,
             })
         },
         6 => {
@@ -220,7 +220,7 @@ pub enum Message {
     Bitfield {
         /// One bool per piece. True means the peer has the complete piece.
         /// There may be trailing false's.
-        bits: Box<Vec<bool>>,
+        bits: Vec<bool>,
     },
     Request {
         /// Piece index

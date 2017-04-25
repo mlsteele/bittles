@@ -137,7 +137,7 @@ fn inner() -> Result<(),Box<Error>> {
     let res = BencodeRef::decode(buf.as_slice(), BDecodeOpt::default())?;
 
     let info = MetaInfo::new(res)?;
-    println!("{:#?}", info);
+    println!("{}", info);
 
     let rand = SystemRandom::new();
 
