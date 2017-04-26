@@ -41,6 +41,7 @@ impl Downloader {
 
         let mut state = PeerState::default();
         let mut nreceived = 0;
+        let mut requested = false;
         loop {
             let m = peer::read_message(&mut stream)?;
             println!("message: {}", m.summarize());
@@ -70,7 +71,7 @@ impl Downloader {
                 peer::send_message(&mut stream, &out)?;
                 state.am_interested = true;
             }
-            if !state.peer_choking && state.am_interested {
+            if !requested && !state.peer_choking && state.am_interested {
                 let out = Message::Request{
                     piece: 0,
                     offset: 0,
@@ -78,6 +79,7 @@ impl Downloader {
                 };
                 println!("sending message: {:?}", out);
                 peer::send_message(&mut stream, &out)?;
+                requested = true;
             }
             println!("state: {:?}", state);
         }

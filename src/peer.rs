@@ -138,7 +138,7 @@ pub fn read_message<T: io::Read>(stream: &mut T) -> Result<Message> {
             Ok(Piece {
                 piece: piece,
                 offset: offset,
-                block: Box::new(block),
+                block: block,
             })
         },
         8 => {
@@ -265,7 +265,7 @@ pub enum Message {
         /// Offset within the piece
         offset: u32, // (begin)
         /// Block data
-        block: Box<Vec<u8>>,
+        block: Vec<u8>,
     },
     Cancel {
         /// Piece index
@@ -288,6 +288,9 @@ impl Message {
                 let total = bits.len();
                 let set = bits.iter().filter(|b| **b).count();
                 format!("Bitfield {{ total:{} set:{} }}", total, set)
+            },
+            &Message::Piece { ref piece, ref offset, ref block } => {
+                format!("Piece {{ piece:{} offset:{} block:[len {}] }}", piece, offset, block.len())
             },
             _ => format!("{:?}", self),
         }
