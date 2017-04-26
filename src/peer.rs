@@ -1,3 +1,4 @@
+use byteorder::{ByteOrder,BigEndian};
 use error::{Error,Result};
 use metainfo::{InfoHash};
 use ring::rand::SystemRandom;
@@ -206,14 +207,32 @@ mod tests {
 pub fn send_message<T: io::Write>(stream: &mut T, msg: &Message) -> Result<()> {
     let message_id = msg.message_id();
     match *msg {
+        Message::KeepAlive => {
+            stream.write_all(&[0, 0, 0, 0])?;
+        },
         Message::Choke | Message::Unchoke | Message::Interested | Message::NotInterested => {
-            stream.write_all(&[4, message_id])?;
-            Ok(())
+            send_message_frame(stream, message_id, &[])?;
+        },
+        Message::Request { piece, offset, length } => {
+            let mut buf = [0; 3 * 4];
+            BigEndian::write_u32(&mut buf[..4], piece);
+            BigEndian::write_u32(&mut buf[4..8], offset);
+            BigEndian::write_u32(&mut buf[8..], length);
+            send_message_frame(stream, message_id, &buf)?;
         },
         _ => {
-            Err(Error::new_str(&format!("send_message not implemented for id {}", message_id)))
+            Err(Error::new_str(&format!("send_message not implemented for id {}", message_id)))?;
         }
     }
+    Ok(())
+}
+
+pub fn send_message_frame<T: io::Write>(stream: &mut T, message_id: u8, contents: &[u8]) -> Result<()> {
+    let mut buf = [message_id; 5];
+    BigEndian::write_u32(&mut buf[..4], 1 + (contents.len() as u32));
+    stream.write_all(&buf)?;
+    stream.write_all(contents)?;
+    Ok(())
 }
 
 #[derive(Debug)]
