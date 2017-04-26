@@ -3,7 +3,6 @@ use metainfo::{InfoHash};
 use ring::rand::SystemRandom;
 use std::io::Read;
 use std::io;
-use std::net;
 use util::{ReadWire,byte_to_bits};
 use metainfo::{INFO_HASH_SIZE};
 
@@ -21,18 +20,6 @@ pub fn new_peer_id(rand: &SystemRandom) -> Result<PeerID> {
     id[5] = '0' as u8;
     id[6] = '1' as u8;
     Ok(id)
-}
-
-// Client to talk to a peer
-#[derive(Debug)]
-pub struct PeerClient {
-    /// Address of the remote peer
-    address: net::SocketAddr,
-    /// Whether or not the remote peer is interested in something this client has to offer
-    peer_interested: bool,
-    peer_choking: bool,
-    am_choking: bool,
-    am_interested: bool,
 }
 
 // In version 1.0 of the BitTorrent protocol, pstrlen = 19, and pstr = "BitTorrent protocol".
@@ -95,8 +82,6 @@ pub fn read_message<T: io::Read>(stream: &mut T) -> Result<Message> {
         return Ok(KeepAlive);
     }
     let message_id = stream.read_u8()?;
-    println!("message id: {:?}", message_id);
-    println!("message length: {:?}", message_length);
     if message_length == 1 {
         return match message_id {
             0 => Ok(Choke),
@@ -218,9 +203,17 @@ mod tests {
     }
 }
 
-pub struct HandshakeResult {
-    info_hash: InfoHash,
-    peer_id: PeerID,
+pub fn send_message<T: io::Write>(stream: &mut T, msg: &Message) -> Result<()> {
+    let message_id = msg.message_id();
+    match *msg {
+        Message::Choke | Message::Unchoke | Message::Interested | Message::NotInterested => {
+            stream.write_all(&[4, message_id])?;
+            Ok(())
+        },
+        _ => {
+            Err(Error::new_str(&format!("send_message not implemented for id {}", message_id)))
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -280,5 +273,20 @@ impl Message {
             _ => format!("{:?}", self),
         }
     }
-}
 
+    pub fn message_id(&self) -> u8 {
+        match *self {
+            Message::KeepAlive                             => 0,
+            Message::Choke                                 => 0,
+            Message::Unchoke                               => 1,
+            Message::Interested                            => 2,
+            Message::NotInterested                         => 3,
+            Message::Have {piece:_}                        => 4,
+            Message::Bitfield {bits:_}                     => 5,
+            Message::Request {piece:_, offset:_, length:_} => 6,
+            Message::Piece {piece:_, offset:_, block:_}    => 7,
+            Message::Cancel {piece:_, offset:_, length:_}  => 8,
+            Message::Port {port:_}                         => 9,
+        }
+    }
+}

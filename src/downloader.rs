@@ -5,6 +5,7 @@ use metainfo::{MetaInfo};
 use tracker::{TrackerClient};
 use std::net::TcpStream;
 use std::io::Write;
+use std::default::Default;
 
 pub struct Downloader {
 }
@@ -38,10 +39,16 @@ impl Downloader {
         let remote_peer_id = peer::handshake_read_2(&mut stream)?;
         println!("remote peer id: {:?}", remote_peer_id);
 
+        let mut state = PeerState::default();
+        let mut nreceived = 0;
         loop {
             let m = peer::read_message(&mut stream)?;
             println!("message: {}", m.summarize());
             match m {
+                Message::Choke =>         state.peer_choking = true,
+                Message::Unchoke =>       state.peer_choking = false,
+                Message::Interested =>    state.peer_interested = true,
+                Message::NotInterested => state.peer_interested = false,
                 Message::Bitfield { bits } => {
                     if bits.len() < info.num_pieces() {
                         println!("{}", Error::new_str(&format!("bitfield has less bits {} than pieces {}",
@@ -50,6 +57,51 @@ impl Downloader {
                 },
                 _ => {},
             }
+            nreceived += 1;
+            if nreceived >= 1 && state.am_choking {
+                let out = Message::Unchoke{};
+                println!("sending message: {:?}", out);
+                peer::send_message(&mut stream, &out)?;
+                state.am_choking = false;
+            }
+            if nreceived >= 2 && !state.am_interested {
+                let out = Message::Interested{};
+                println!("sending message: {:?}", out);
+                peer::send_message(&mut stream, &out)?;
+                state.am_interested = true;
+            }
+            if !state.peer_choking && state.am_interested {
+                let out = Message::Request{
+                    piece: 0,
+                    offset: 0,
+                    length: 1 << 14,
+                };
+                println!("sending message: {:?}", out);
+                peer::send_message(&mut stream, &out)?;
+            }
+            println!("state: {:?}", state);
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct PeerState {
+    /// Peer is interested in this client
+    peer_interested: bool,
+    /// Peer is choking this client
+    peer_choking: bool, 
+
+    am_interested: bool,
+    am_choking: bool,
+}
+
+impl Default for PeerState {
+    fn default() -> Self {
+        PeerState {
+            peer_interested: false,
+            peer_choking: true,
+            am_interested: false,
+            am_choking: true,
         }
     }
 }
