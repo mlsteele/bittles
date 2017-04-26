@@ -7,7 +7,7 @@ use std;
 use itertools::Itertools;
 
 pub const INFO_HASH_SIZE: usize = 20;
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct InfoHash { pub hash: [u8; PIECE_HASH_SIZE] }
 
 impl fmt::Debug for InfoHash {
@@ -99,6 +99,10 @@ impl MetaInfo {
             piece_length: piece_length as usize,
             piece_hashes: piece_hashes,
         })
+    }
+
+    pub fn num_pieces(&self) -> usize {
+        return self.piece_hashes.len()
     }
 
     pub fn total_size(&self) -> usize {

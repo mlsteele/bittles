@@ -112,6 +112,22 @@ impl<R> ReadWire for R
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use util::*;
+
+    #[test]
+    fn test_read_extensions() {
+        let sample = vec![0, 1, 0, 1,
+                          9, 9,
+                          12];
+        let mut reader = sample.as_slice();
+        assert_eq!(reader.read_u32().unwrap(), 65537);
+        assert_eq!(reader.read_n(2).unwrap(), vec![9, 9]);
+        assert_eq!(reader.read_u8().unwrap(), 12);
+    }
+}
+
 pub fn byte_to_bits(b: u8) -> [bool; 8] {
     let mut b = b;
     let mut z = [false; 8];

@@ -1,11 +1,9 @@
-use byteorder::{ByteOrder,BigEndian};
 use error::{Error,Result};
 use metainfo::{InfoHash};
 use ring::rand::SystemRandom;
 use std::io::Read;
 use std::io;
 use std::net;
-use std::cmp;
 use util::{ReadWire,byte_to_bits};
 use metainfo::{INFO_HASH_SIZE};
 
@@ -96,11 +94,10 @@ pub fn read_message<T: io::Read>(stream: &mut T) -> Result<Message> {
     if message_length == 0 {
         return Ok(KeepAlive);
     }
-    if message_length < NUM_LEN {
-        return Err(Error::new_peer(&format!("message length ({}) less than 4", message_length)));
-    }
     let message_id = stream.read_u8()?;
-    if message_length == NUM_LEN {
+    println!("message id: {:?}", message_id);
+    println!("message length: {:?}", message_length);
+    if message_length == 1 {
         return match message_id {
             0 => Ok(Choke),
             1 => Ok(Unchoke),
@@ -111,7 +108,7 @@ pub fn read_message<T: io::Read>(stream: &mut T) -> Result<Message> {
             _ => Err(Error::new_peer(&format!("unknown message id {} (no-body)", message_id))),
         }
     }
-    let body_length: usize = message_length - NUM_LEN;
+    let body_length: usize = message_length - 1;
     // Limit the stream to read to the end of this message.
     let mut stream = stream.take(body_length as u64);
     match message_id {
@@ -186,18 +183,38 @@ mod tests {
 
     #[test]
     fn test_read_message() {
-        let sample = vec![0, 0, 0, 4, 0, 0, 0, 2,
-                          0, 0, 0, 4, 0, 0, 0, 1,
+        let sample = vec![0, 0, 0, 1, 2,
+                          0, 0, 0, 5, 4, 0, 1, 0, 1,
+                          0, 0, 0, 1, 1,
                           9, 9];
         let mut reader = sample.as_slice();
         {
             let m = read_message(&mut reader).unwrap();
+            println!("{:?}", m);
             assert!(matches!(m, Message::Interested));
         }
         {
             let m = read_message(&mut reader).unwrap();
+            println!("{:?}", m);
+            match m {
+                Message::Have { piece } => assert_eq!(piece, 65537),
+                _ => assert!(false)
+            }
+        }
+        {
+            let m = read_message(&mut reader).unwrap();
+            println!("{:?}", m);
             assert!(matches!(m, Message::Unchoke));
         }
+    }
+
+    // #[test]
+    fn test_reader() {
+        // This test is to understand how Read.take works when you don't use it all.
+        let sample = vec![0, 1, 2, 3, 4, 5, 6, 7, 8];
+        let mut reader = sample.as_slice();
+        let mut reader2 = reader.take(1);
+        assert_eq!(reader2.read_n(3).unwrap(), vec![0, 1, 2]);
     }
 }
 

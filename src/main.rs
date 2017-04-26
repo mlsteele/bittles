@@ -26,7 +26,6 @@ use std::error::Error;
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
-use tracker::*;
 use util::{replace_query_parameters, QueryParameters};
 
 const USAGE: &'static str = "
