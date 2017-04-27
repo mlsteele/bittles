@@ -31,6 +31,10 @@ impl Error {
     pub fn new_peer(description: &str) -> Error {
         Error::PeerProtocol(description.to_owned())
     }
+
+    pub fn todo() -> Error {
+        Error::new_str("not implemented")
+    }
 }
 
 impl fmt::Display for Error {
