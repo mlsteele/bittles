@@ -8,6 +8,7 @@ extern crate rustc_serialize;
 extern crate url;
 
 mod downloader;
+mod datastore;
 mod error;
 mod metainfo;
 mod tracker;
