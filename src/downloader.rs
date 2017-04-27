@@ -12,7 +12,7 @@ pub struct Downloader {
 
 impl Downloader {
     pub fn start(info: MetaInfo, peer_id: PeerID) -> Result<()> {
-        let mut tc = TrackerClient::new(info.clone(), peer_id)?;
+        let mut tc = TrackerClient::new(info.clone(), peer_id.clone())?;
         println!("trackerclient: {:#?}", tc);
 
         let tracker_res = tc.easy_start()?;
@@ -27,7 +27,7 @@ impl Downloader {
 
         let peer = tracker_res.peers[0].clone();
         let mut stream = TcpStream::connect(peer.address)?;
-        peer::handshake_send(&mut stream, info.info_hash.clone(), peer_id)?;
+        peer::handshake_send(&mut stream, info.info_hash.clone(), peer_id.clone())?;
         stream.flush()?;
 
         let remote_info_hash = peer::handshake_read_1(&mut stream)?;
@@ -91,7 +91,7 @@ pub struct PeerState {
     /// Peer is interested in this client
     peer_interested: bool,
     /// Peer is choking this client
-    peer_choking: bool, 
+    peer_choking: bool,
 
     am_interested: bool,
     am_choking: bool,

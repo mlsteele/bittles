@@ -40,7 +40,7 @@ impl TrackerClient {
     pub fn easy_start(&mut self) -> Result<TrackerResponse> {
         let req = TrackerRequest {
             info_hash: self.metainfo.info_hash.clone(),
-            peer_id: self.peer_id,
+            peer_id: self.peer_id.clone(),
             port: 6881, // TODO this is not true
             uploaded: 0,
             downloaded: 0,
@@ -73,7 +73,7 @@ impl TrackerClient {
         // TODO set user agent
         let mut qps = QueryParameters::new();
         qps.push("info_hash", req.info_hash.hash);
-        qps.push("peer_id", req.peer_id);
+        qps.push("peer_id", req.peer_id.id);
         qps.push_num("port", req.port);
         qps.push_num("uploaded", req.uploaded);
         qps.push_num("downloaded", req.downloaded);

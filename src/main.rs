@@ -20,7 +20,7 @@ use docopt::Docopt;
 use downloader::Downloader;
 use itertools::Itertools;
 use metainfo::*;
-use peer::{new_peer_id};
+use peer::{PeerID};
 use ring::rand::SystemRandom;
 use std::error::Error;
 use std::fs::File;
@@ -140,8 +140,8 @@ fn inner() -> Result<(),Box<Error>> {
 
     let rand = SystemRandom::new();
 
-    let peer_id = new_peer_id(&rand)?;
-    println!("peer_id: {:x}", peer_id.iter().format(""));
+    let peer_id = PeerID::new(&rand)?;
+    println!("peer_id: {:?}", peer_id);
 
     Downloader::start(info, peer_id)?;
     Ok(())

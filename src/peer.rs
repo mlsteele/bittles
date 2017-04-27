@@ -2,25 +2,39 @@ use byteorder::{ByteOrder,BigEndian};
 use error::{Error,Result};
 use metainfo::{InfoHash};
 use ring::rand::SystemRandom;
+use std::fmt;
 use std::io::Read;
 use std::io;
+use std;
+use itertools::Itertools;
 use util::{ReadWire,byte_to_bits};
 use metainfo::{INFO_HASH_SIZE};
 
 pub const PEERID_SIZE: usize = 20;
-pub type PeerID = [u8; PEERID_SIZE];
+#[derive(Clone)]
+pub struct PeerID { pub id: [u8; PEERID_SIZE] }
 
-pub fn new_peer_id(rand: &SystemRandom) -> Result<PeerID> {
-    let mut id = [0; PEERID_SIZE];
-    rand.fill(&mut id)?;
-    id[0] = '-' as u8;
-    id[1] = 'B' as u8;
-    id[2] = 'I' as u8;
-    id[3] = '0' as u8;
-    id[4] = '0' as u8;
-    id[5] = '0' as u8;
-    id[6] = '1' as u8;
-    Ok(id)
+impl fmt::Debug for PeerID {
+    fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
+        write!(f, "{:x}", self.id.iter().format(""))
+    }
+}
+
+impl PeerID {
+    pub fn new(rand: &SystemRandom) -> Result<Self> {
+        let mut id = [0; PEERID_SIZE];
+        rand.fill(&mut id)?;
+        id[0] = '-' as u8;
+        id[1] = 'B' as u8;
+        id[2] = 'I' as u8;
+        id[3] = '0' as u8;
+        id[4] = '0' as u8;
+        id[5] = '0' as u8;
+        id[6] = '1' as u8;
+        Ok(Self {
+            id: id
+        })
+    }
 }
 
 // In version 1.0 of the BitTorrent protocol, pstrlen = 19, and pstr = "BitTorrent protocol".
@@ -47,9 +61,9 @@ pub fn handshake_read_1<T: io::Read>(stream: &mut T) -> Result<InfoHash> {
 /// Read the last half of the peer handshake.
 pub fn handshake_read_2<T: io::Read>(stream: &mut T) -> Result<PeerID> {
     // Peer id
-    let mut peer_id: PeerID = [0; PEERID_SIZE];
+    let mut peer_id = [0; PEERID_SIZE];
     stream.read_exact(&mut peer_id)?;
-    Ok(peer_id)
+    Ok(PeerID{id: peer_id})
 }
 
 /// Sends one side of the peer handshake.
@@ -69,7 +83,7 @@ pub fn handshake_send<T: io::Write>(stream: &mut T, info_hash: InfoHash, peer_id
     stream.write(&info_hash.hash)?;
 
     // Peer id
-    stream.write(&peer_id)?;
+    stream.write(&peer_id.id)?;
 
     Ok(())
 }
