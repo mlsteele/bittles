@@ -1,8 +1,9 @@
 use errors::Error;
 use io;
 
-/// A manifest describes which bytes have been downloaded and verified
-/// for a single infohash.
+/// Manifest describes the state of what parts of a torrent have been downloaded and verified.
+/// A manifest is associated with a single torrent.
+/// It is safe for it to be behind the state of the disk, but unsafe for it to be ahead.
 pub struct Manifest {
     info_hash: InfoHash,
     num_pieces: usize,
@@ -10,7 +11,7 @@ pub struct Manifest {
     /// Whether each piece has been verified
     verified: Vec<bool>,
     /// Which parts of each piece have been downloaded
-    present: Vec<Ranges>,
+    present: Vec<Fillable>,
 }
 
 impl Manifest {
@@ -81,5 +82,30 @@ impl Manifest {
             false => Err(Error::new_str(
                 &format!("piece out of bounds !({} < {})", piece, self.num_pieces))),
         }
+    }
+}
+
+/// Fillable is a range from [0,max) that can be filled by subranges.
+struct Fillable {
+    max: 0,
+}
+
+impl Fillable {
+    fn new(max: u32) -> Self {
+        Fillable { max: max }
+    }
+
+    /// Fill the range [a, b)
+    fn add(&mut self, a: u32, b: u32) -> Result<()> {
+        return Err(Error::todo());
+    }
+
+    /// Fill the whole thing
+    fn fill(&mut self) -> Result<()> {
+        return Err(Error::todo());
+    }
+
+    fn clear(&mut self) -> () {
+        return Err(Error::todo());
     }
 }

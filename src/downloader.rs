@@ -65,7 +65,7 @@ impl Downloader {
                 peer::send_message(&mut stream, &out)?;
                 state.am_choking = false;
             }
-            if nreceived >= 2 && !state.am_interested {
+            if nreceived >= 1 && !state.am_interested {
                 let out = Message::Interested{};
                 println!("sending message: {:?}", out);
                 peer::send_message(&mut stream, &out)?;
