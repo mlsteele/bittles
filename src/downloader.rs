@@ -13,7 +13,6 @@ pub struct Downloader {
 impl Downloader {
     pub fn start(info: MetaInfo, peer_id: PeerID) -> Result<()> {
         let mut tc = TrackerClient::new(info.clone(), peer_id.clone())?;
-        println!("trackerclient: {:#?}", tc);
 
         let tracker_res = tc.easy_start()?;
         println!("tracker res: {:#?}", tracker_res);
