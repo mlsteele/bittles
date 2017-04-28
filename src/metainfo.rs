@@ -151,8 +151,8 @@ impl MetaInfo {
     pub fn total_size(&self) -> u64 {
         use FileInfo::*;
         let res: u64 = match &self.file_info {
-            &Single { ref name, length } => length,
-            &Multi { ref name, ref files } => files.iter().map(|x| x.length).sum(),
+            &Single { length, .. } => length,
+            &Multi { ref files, .. } => files.iter().map(|x| x.length).sum(),
         };
         res
     }

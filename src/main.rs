@@ -144,6 +144,14 @@ fn inner() -> Result<(),Box<Error>> {
     let peer_id = PeerID::new(&rand)?;
     println!("peer_id: {:?}", peer_id);
 
-    Downloader::start(info, peer_id)?;
+    let datastore_path = {
+        let mut x = cwd.clone();
+        x.push("tmp");
+        x.push("data");
+        x
+    };
+    println!("datastore path: {:?}", datastore_path);
+
+    Downloader::start(info, peer_id, datastore_path)?;
     Ok(())
 }

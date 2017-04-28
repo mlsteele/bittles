@@ -1,17 +1,20 @@
+use datastore::DataStore;
 use error::{Error,Result};
+use metainfo::{MetaInfo};
 use peer::{PeerID,Message};
 use peer;
-use metainfo::{MetaInfo};
-use tracker::{TrackerClient};
-use std::net::TcpStream;
-use std::io::Write;
 use std::default::Default;
+use std::io::Write;
+use std::net::TcpStream;
+use std::path::Path;
+use tracker::{TrackerClient};
 
 pub struct Downloader {
 }
 
 impl Downloader {
-    pub fn start(info: MetaInfo, peer_id: PeerID) -> Result<()> {
+    pub fn start<P: AsRef<Path>>(info: MetaInfo, peer_id: PeerID, store_path: P) -> Result<()> {
+        let mut datastore = DataStore::create_or_open(&info, store_path)?;
         let mut tc = TrackerClient::new(info.clone(), peer_id.clone())?;
 
         let tracker_res = tc.easy_start()?;
@@ -25,7 +28,9 @@ impl Downloader {
         }
 
         let peer = tracker_res.peers[0].clone();
+        println!("connecting...");
         let mut stream = TcpStream::connect(peer.address)?;
+        println!("connected");
         peer::handshake_send(&mut stream, info.info_hash.clone(), peer_id.clone())?;
         stream.flush()?;
 
@@ -39,8 +44,7 @@ impl Downloader {
         println!("remote peer id: {:?}", remote_peer_id);
 
         let mut state = PeerState::default();
-        let mut nreceived = 0;
-        let mut requested = false;
+        let mut s = BlahState::default();
         loop {
             let m = peer::read_message(&mut stream)?;
             println!("message: {}", m.summarize());
@@ -55,30 +59,35 @@ impl Downloader {
                                                            bits.len(), info.num_pieces())));
                     }
                 },
+                Message::Piece { piece, offset, block } => {
+                    datastore.write_block(piece, offset, &block)?;
+                    s.waiting = false;
+                },
                 _ => {},
             }
-            nreceived += 1;
-            if nreceived >= 1 && state.am_choking {
+            s.nreceived += 1;
+            if s.nreceived >= 1 && state.am_choking {
                 let out = Message::Unchoke{};
                 println!("sending message: {:?}", out);
                 peer::send_message(&mut stream, &out)?;
                 state.am_choking = false;
             }
-            if nreceived >= 1 && !state.am_interested {
+            if s.nreceived >= 1 && !state.am_interested {
                 let out = Message::Interested{};
                 println!("sending message: {:?}", out);
                 peer::send_message(&mut stream, &out)?;
                 state.am_interested = true;
             }
-            if !requested && !state.peer_choking && state.am_interested {
+            if !s.waiting && !state.peer_choking && state.am_interested {
                 let out = Message::Request{
-                    piece: 0,
+                    piece: s.piece as u32,
                     offset: 0,
                     length: 1 << 14,
                 };
                 println!("sending message: {:?}", out);
                 peer::send_message(&mut stream, &out)?;
-                requested = true;
+                s.waiting = true;
+                s.piece += 1;
             }
             println!("state: {:?}", state);
         }
@@ -94,6 +103,14 @@ pub struct PeerState {
 
     am_interested: bool,
     am_choking: bool,
+}
+
+#[derive(Debug, Default)]
+pub struct BlahState {
+    nreceived: u64,
+    requested: bool,
+    piece: u64,
+    waiting: bool,
 }
 
 impl Default for PeerState {

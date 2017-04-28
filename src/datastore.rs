@@ -6,14 +6,14 @@ use std::io::{Seek,SeekFrom,Write};
 use std::path::Path;
 use util::ReadWire;
 
-struct DataStore {
+pub struct DataStore {
     file: fs::File,
     num_pieces: u64,
     piece_size: u32,
 }
 
 impl DataStore {
-    pub fn create_or_open<P: AsRef<Path>>(metainfo: MetaInfo, path: P) -> Result<Self> {
+    pub fn create_or_open<P: AsRef<Path>>(metainfo: &MetaInfo, path: P) -> Result<Self> {
         let f = fs::OpenOptions::new()
             .read(true)
             .write(true)
