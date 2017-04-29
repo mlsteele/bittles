@@ -1,6 +1,11 @@
 use byteorder::{ByteOrder,BigEndian};
 use hyper::Url;
 use std::io;
+use std::marker::Send;
+use std::net;
+use std::sync::mpsc;
+use std::thread;
+use std::time::Duration;
 use url::form_urlencoded;
 
 fn encode(x: &[u8]) -> String {
@@ -157,3 +162,19 @@ macro_rules! matches(
         }
     )
 );
+
+pub fn tcp_connect<T>(addr: T, timeout: Duration) -> io::Result<net::TcpStream>
+    where T: net::ToSocketAddrs + Send + 'static
+{
+    let (tx1, rx) = mpsc::sync_channel(0);
+    let tx2 = tx1.clone();
+    thread::spawn(move|| {
+        let stream = net::TcpStream::connect(addr);
+        let _ = tx1.send(stream);
+    });
+    thread::spawn(move|| {
+        thread::sleep(timeout);
+        let _ = tx2.send(Err(io::Error::new(io::ErrorKind::TimedOut, "tcp connect timed out")));
+    });
+    rx.recv().unwrap()
+}

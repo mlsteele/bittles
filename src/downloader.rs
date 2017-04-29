@@ -5,9 +5,10 @@ use peer::{PeerID,Message};
 use peer;
 use std::default::Default;
 use std::io::Write;
-use std::net::TcpStream;
 use std::path::Path;
 use tracker::{TrackerClient};
+use util::{tcp_connect};
+use std::time::Duration;
 
 pub struct Downloader {
 }
@@ -29,7 +30,7 @@ impl Downloader {
 
         let peer = tracker_res.peers[0].clone();
         println!("connecting...");
-        let mut stream = TcpStream::connect(peer.address)?;
+        let mut stream = tcp_connect(peer.address, Duration::from_millis(3000))?;
         println!("connected");
         peer::handshake_send(&mut stream, info.info_hash.clone(), peer_id.clone())?;
         stream.flush()?;
