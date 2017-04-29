@@ -1,8 +1,8 @@
 use datastore::DataStore;
 use error::{Error,Result};
 use metainfo::{MetaInfo};
-use peer::{PeerID,Message};
-use peer;
+use peer_protocol::{PeerID,Message};
+use peer_protocol;
 use std::default::Default;
 use std::io::Write;
 use std::path::Path;
@@ -32,22 +32,22 @@ impl Downloader {
         println!("connecting...");
         let mut stream = tcp_connect(peer.address, Duration::from_millis(3000))?;
         println!("connected");
-        peer::handshake_send(&mut stream, info.info_hash.clone(), peer_id.clone())?;
+        peer_protocol::handshake_send(&mut stream, info.info_hash.clone(), peer_id.clone())?;
         stream.flush()?;
 
-        let remote_info_hash = peer::handshake_read_1(&mut stream)?;
+        let remote_info_hash = peer_protocol::handshake_read_1(&mut stream)?;
         println!("remote info hash: {:?}", remote_info_hash);
         if remote_info_hash != info.info_hash {
             return Err(Error::new_str(&format!("peer info hash mismatch peer:{:?} me:{:?}",
                 remote_info_hash, info.info_hash)));
         }
-        let remote_peer_id = peer::handshake_read_2(&mut stream)?;
+        let remote_peer_id = peer_protocol::handshake_read_2(&mut stream)?;
         println!("remote peer id: {:?}", remote_peer_id);
 
         let mut state = PeerState::default();
         let mut s = BlahState::default();
         loop {
-            let m = peer::read_message(&mut stream)?;
+            let m = peer_protocol::read_message(&mut stream)?;
             println!("message: {}", m.summarize());
             match m {
                 Message::Choke =>         state.peer_choking = true,
@@ -70,13 +70,13 @@ impl Downloader {
             if s.nreceived >= 1 && state.am_choking {
                 let out = Message::Unchoke{};
                 println!("sending message: {:?}", out);
-                peer::send_message(&mut stream, &out)?;
+                peer_protocol::send_message(&mut stream, &out)?;
                 state.am_choking = false;
             }
             if s.nreceived >= 1 && !state.am_interested {
                 let out = Message::Interested{};
                 println!("sending message: {:?}", out);
-                peer::send_message(&mut stream, &out)?;
+                peer_protocol::send_message(&mut stream, &out)?;
                 state.am_interested = true;
             }
             if !s.waiting && !state.peer_choking && state.am_interested {
@@ -86,7 +86,7 @@ impl Downloader {
                     length: 1 << 14,
                 };
                 println!("sending message: {:?}", out);
-                peer::send_message(&mut stream, &out)?;
+                peer_protocol::send_message(&mut stream, &out)?;
                 s.waiting = true;
                 s.piece += 1;
             }

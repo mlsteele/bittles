@@ -15,7 +15,7 @@ mod manifest;
 mod tracker;
 #[macro_use]
 mod util;
-mod peer;
+mod peer_protocol;
 
 use bip_bencode::{BencodeRef, BDecodeOpt};
 use docopt::Docopt;
@@ -23,7 +23,7 @@ use downloader::Downloader;
 use itertools::Itertools;
 use metainfo::*;
 use manifest::*;
-use peer::{PeerID};
+use peer_protocol::{PeerID};
 use ring::rand::SystemRandom;
 use std::error::Error;
 use std::fs::File;

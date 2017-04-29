@@ -89,7 +89,7 @@ pub fn handshake_send<T: io::Write>(stream: &mut T, info_hash: InfoHash, peer_id
 }
 
 pub fn read_message<T: io::Read>(stream: &mut T) -> Result<Message> {
-    use peer::Message::*;
+    use peer_protocol::Message::*;
     const NUM_LEN: usize = 4;
     // Message length including ID. Not including its own 4 bytes.
     let message_length: usize = stream.read_u32()? as usize;
@@ -179,7 +179,7 @@ pub fn read_message<T: io::Read>(stream: &mut T) -> Result<Message> {
 
 #[cfg(test)]
 mod tests {
-    use peer::*;
+    use peer_protocol::*;
 
     #[test]
     fn test_read_message() {

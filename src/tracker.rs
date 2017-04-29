@@ -8,7 +8,7 @@ use std::io::Read;
 use std::net;
 use std::time::Duration;
 use util::{QueryParameters};
-use peer::PeerID;
+use peer_protocol::PeerID;
 
 // Client to talk to a tracker
 #[derive(Debug)]
