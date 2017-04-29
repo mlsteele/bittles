@@ -11,6 +11,7 @@ mod downloader;
 mod datastore;
 mod error;
 mod metainfo;
+mod manifest;
 mod tracker;
 #[macro_use]
 mod util;
@@ -21,6 +22,7 @@ use docopt::Docopt;
 use downloader::Downloader;
 use itertools::Itertools;
 use metainfo::*;
+use manifest::*;
 use peer::{PeerID};
 use ring::rand::SystemRandom;
 use std::error::Error;
@@ -138,6 +140,9 @@ fn inner() -> Result<(),Box<Error>> {
 
     let info = MetaInfo::new(res)?;
     println!("{}", info);
+
+    let manifest = Manifest::new(info.clone());
+    println!("{}", manifest);
 
     let rand = SystemRandom::new();
 
