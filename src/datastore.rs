@@ -8,7 +8,7 @@ use util::ReadWire;
 
 pub struct DataStore {
     file: fs::File,
-    num_pieces: u64,
+    num_pieces: usize,
     piece_size: u32,
 }
 
@@ -24,14 +24,14 @@ impl DataStore {
         Ok(DataStore {
             file: f,
             num_pieces: metainfo.num_pieces(),
-            piece_size: metainfo.piece_length as u32,
+            piece_size: metainfo.piece_length,
         })
     }
 
-    pub fn write_block(&mut self, piece: u32, offset: u32, block: &[u8]) -> Result<()> {
+    pub fn write_block(&mut self, piece: usize, offset: u32, block: &[u8]) -> Result<()> {
         self.check_piece(piece)?;
         // last affected piece
-        let last_piece = piece + (offset + (block.len() as u32)) / self.piece_size;
+        let last_piece: usize = ((piece as u32) + (offset + block.len() as u32) / self.piece_size) as usize;
         self.check_piece(last_piece)?;
         let x = self.point(piece, offset);
         self.file.seek(SeekFrom::Start(x))?;
@@ -39,7 +39,7 @@ impl DataStore {
         Ok(())
     }
 
-    pub fn verify_piece(&mut self, piece: u32, expected: PieceHash) -> Result<bool> {
+    pub fn verify_piece(&mut self, piece: usize, expected: PieceHash) -> Result<bool> {
         self.check_piece(piece)?;
         let x = self.point(piece, 0);
         self.file.seek(SeekFrom::Start(x))?;
@@ -53,8 +53,8 @@ impl DataStore {
     }
 
     /// Check that a piece number is in bounds.
-    fn check_piece(&self, piece: u32) -> Result<()> {
-        match piece < self.num_pieces as u32 {
+    fn check_piece(&self, piece: usize) -> Result<()> {
+        match piece < self.num_pieces {
             true => Ok(()),
             false => Err(Error::new_str(
                 &format!("piece out of bounds !({} < {})", piece, self.num_pieces))),
@@ -62,7 +62,7 @@ impl DataStore {
     }
 
     /// Calculate the byte offset. Does not check bounds.
-    fn point(&self, piece: u32, offset: u32) -> u64 {
+    fn point(&self, piece: usize, offset: u32) -> u64 {
         (piece as u64) * (self.piece_size as u64) + (offset as u64)
     }
 }

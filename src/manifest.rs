@@ -8,9 +8,10 @@ use metainfo::*;
 /// Manifest describes the state of what parts of a torrent have been downloaded and verified.
 /// A manifest is associated with a single torrent.
 /// It is safe for it to be behind the state of the disk, but unsafe for it to be ahead.
+#[derive(Debug)]
 pub struct Manifest {
     info_hash: InfoHash,
-    num_pieces: u32,
+    num_pieces: usize,
     piece_length: u32,
     /// Whether each piece has been verified
     verified: Vec<bool>,
@@ -33,12 +34,13 @@ impl fmt::Display for Manifest {
 impl Manifest {
     pub fn new(info: MetaInfo) -> Self {
         let num_pieces = info.num_pieces();
+        let piece_length = info.piece_length;
         Self {
             info_hash: info.info_hash.clone(),
             num_pieces: num_pieces,
-            piece_length: info.piece_length,
+            piece_length: piece_length,
             verified: vec![false; num_pieces],
-            present: Vec::new(),
+            present: std::iter::repeat(Fillable::new(piece_length)).take(num_pieces).collect(),
         }
     }
 
@@ -65,20 +67,23 @@ impl Manifest {
     /// Record the addition of a block.
     /// Can span multiple pieces.
     /// Returns an error if it dives off the end of the file.
-    pub fn add_block(&mut self, piece: u32, offset: u32, length: u32) -> Result<()> {
+    pub fn add_block(&mut self, piece: usize, offset: u32, length: u32) -> Result<()> {
+        //println!("add_block({}, {}, {}) to {:?}", piece, offset, length, self);
 
         // find the last affected piece
-        let last_byte = (piece * self.piece_length) + (offset + length);
-        let last_piece = if last_byte % self.piece_length == 0 {
-                last_byte / self.piece_length - 1
+        let last_byte: u64 = (piece as u64 * self.piece_length as u64) + (offset + length) as u64;
+        let last_piece: usize = if last_byte % (self.piece_length as u64) == 0 {
+                (last_byte / (self.piece_length as u64) - 1) as usize
             } else {
-                last_byte / self.piece_length
+                (last_byte / self.piece_length as u64) as usize
             };
         self.check_piece(last_piece)?;
+        //println!("\tThe last affected piece is {}", last_piece);
 
         // Fill the first piece
         {
-            self.present[piece].add(offset, cmp::min(offset + length, self.piece_length - offset))?;
+            //println!("\tWill add interval from {} to {}", offset, )
+            self.present[piece].add(offset, cmp::min(offset + length, self.piece_length))?;
         }
         // Fill the in-between pieces
         for i in piece+1..last_piece {
@@ -97,26 +102,27 @@ impl Manifest {
     }
 
     /// Remove a piece
-    pub fn remove_piece(&mut self, piece: u32) -> Result<()> {
+    pub fn remove_piece(&mut self, piece: usize) -> Result<()> {
         self.check_piece(piece)?;
         self.present[piece].clear();
         Ok(())
     }
 
     /// Record that a piece was verified.
-    pub fn verify(&self, piece: u32) -> Result<()> {
+    pub fn verify(&mut self, piece: usize) -> Result<()> {
         self.check_piece(piece)?;
         self.verified[piece] = true;
         Ok(())
     }
 
-    pub fn is_full(&self, piece: u32) -> Result<bool> {
-        return self.present[piece].is_full();
+    pub fn is_full(&self, piece: usize) -> Result<bool> {
+        self.check_piece(piece)?;
+        Ok(self.present[piece].is_full())
     }
 
     /// Check that a piece number is in bounds.
-    fn check_piece(&self, piece: u32) -> Result<()> {
-        match 0 < piece && piece < self.num_pieces {
+    fn check_piece(&self, piece: usize) -> Result<()> {
+        match 0 <= piece && piece < self.num_pieces {
             true => Ok(()),
             false => Err(Error::new_str(
                 &format!("piece out of bounds !({} < {})", piece, self.num_pieces))),
@@ -125,20 +131,22 @@ impl Manifest {
 }
 
 /// Fillable is a range from [0,size) that can be filled by subranges.
+#[derive(Clone, Debug)]
 struct Fillable {
     size: u32,
     contents: Vec<Interval>,
 }
-
 impl Fillable {
     fn new(size: u32) -> Self {
         Fillable { size: size, contents: Vec::new() }
     }
 
     fn is_full(&self) -> bool {
-        return self.contents.len() == 1 &&
+        let r = self.contents.len() == 1 &&
             self.contents[0].start == 0 &&
             self.contents[0].end == self.size;
+        //println!("is_full {:?} = {}", self, r);
+        return r;
     }
 
     /// Fill the range [a, b)
@@ -153,26 +161,30 @@ impl Fillable {
     // [0,1] [3,4] <- [1,2] returns 0
     // [0,1] [3,4] <- [2,3] returns 1
     fn add(&mut self, a: u32, b: u32) -> Result<()> {
+        //println!("\tadd({}, {}) to {:?}", a, b, self);
         let mut place = 0;
         let mut found = false;
         for idx in 0..self.contents.len() {
             if a <= self.contents[idx].end {
                 place = idx;
+                //println!("\t\tPlace is {}", place);
                 found = true;
                 break;
             }
         }
         if !found {
             // the new interval belongs on the end
+            //println!("\t\tAdding Interval({},{}) to the end", a,b);
             self.contents.push(Interval::new(a,b));
             return self.check_rep();
             //return Ok(());
         }
         // now self.contents only contains the left_side
-        let right_side = self.contents.split_off(place);
+        let mut right_side = self.contents.split_off(place);
 
         // Is the new interval totally before? (no combining)
         if b < right_side[0].start {
+            //println!("\t\tThe new interval ({},{}) will go before place.", a,b);
             self.contents.push(Interval::new(a,b));
             self.contents.extend(right_side.into_iter());
             return self.check_rep();
@@ -181,12 +193,15 @@ impl Fillable {
 
         // Ok; the new interval needs to be combined with the one at right_side[0]
         // which is guaranteed to exist because it's at place.
+        //println!("\t\tWill modify {:?}", right_side[0]);
         right_side[0].start = cmp::min(a, right_side[0].start);
         right_side[0].end = cmp::max(b, right_side[0].end);
+        //println!("\t\tNow it's {:?}", right_side[0]);
 
         // Now check if it needs to be combined with right_side[1]
         if right_side.len() > 1 {
             if right_side[0].end >= right_side[1].start {
+                //println!("\t\tWill combine with neighbor {:?}", right_side[1]);
                 right_side[0].end = right_side[1].end;
                 right_side.remove(1);
             }
@@ -214,8 +229,8 @@ impl Fillable {
             let mut res: Result<()> = Ok(());
             //self.contents.into_iter().map(|i| i.check_rep()).fold(
             //    Ok(()), |acc, &r| if r.is_err { r } else { acc })
-            let mut last: Option<Interval> = None;
-            for i in self.contents {
+            let mut last: Option<&Interval> = None;
+            for i in self.contents.iter() {
                 let res_i = i.check_rep();
                 if res_i.is_err() {
                     res = res_i;
@@ -236,6 +251,7 @@ impl Fillable {
     }
 }
 
+#[derive(Clone, Debug)]
 struct Interval {
     start: u32, // inclusive
     end:   u32, // exclusive
@@ -260,6 +276,52 @@ mod tests {
     use metainfo::*;
 
     #[test]
+    fn test_fillable_add() {
+        // [ [0,3) ] <- [1,2) // completely inclosed in 1 interval already
+        let mut f = Fillable::new(3);
+        assert!(f.add(0,3).is_ok());
+        assert!(f.add(1,2).is_ok());
+        assert!(f.contents.len() == 1);
+        assert!(f.contents[0].start == 0);
+        assert!(f.contents[0].end == 3);
+
+        // [ [0,3) ] <- [4,5) // completely separate
+        f = Fillable::new(5);
+        assert!(f.add(0,3).is_ok());
+        assert!(f.add(4,5).is_ok());
+        assert!(f.contents.len() == 2);
+        assert!(f.contents[0].start == 0);
+        assert!(f.contents[0].end == 3);
+        assert!(f.contents[1].start == 4);
+        assert!(f.contents[1].end == 5);
+
+        // [ [0,3) ] <- [1,6) // overlap on left side
+        f = Fillable::new(6);
+        assert!(f.add(0,3).is_ok());
+        assert!(f.add(1,6).is_ok());
+        assert!(f.contents.len() == 1);
+        assert!(f.contents[0].start == 0);
+        assert!(f.contents[0].end == 6);
+
+        // [ [0,3) [4,5) ] <- [3,4) // overlap 2 existing intervals
+        f = Fillable::new(5);
+        assert!(f.add(0,3).is_ok());
+        assert!(f.add(4,5).is_ok());
+        assert!(f.add(3,4).is_ok());
+        assert!(f.contents.len() == 1);
+        assert!(f.contents[0].start == 0);
+        assert!(f.contents[0].end == 5);
+
+        // [ [1,3) ] <- [0,1) // overlap on right side
+        f = Fillable::new(3);
+        assert!(f.add(1,3).is_ok());
+        assert!(f.add(0,1).is_ok());
+        assert!(f.contents.len() == 1);
+        assert!(f.contents[0].start == 0);
+        assert!(f.contents[0].end == 3);
+    }
+
+    #[test]
     fn test_add_block() {
         // Reference: add_block(0, 4, 11) with piece_length = 6
         // 0             1             2
@@ -270,72 +332,30 @@ mod tests {
             info_hash: InfoHash{hash: [0; INFO_HASH_SIZE]},
             piece_length: 6,
             piece_hashes: vec![ph.clone(), ph.clone(), ph.clone()],
+            file_info: FileInfo::Single { name: "".to_owned(), length: 0 },
         };
-        let manifest = Manifest::new(info);
-        manifest.add_block(0, 4, 11); // add into the middle
+        let mut manifest = Manifest::new(info);
+        let r=manifest.add_block(0, 4, 11); // add into the middle
+        println!("{:?}", r);
+        assert!(r.is_ok()); // add into the middle
         assert!(!manifest.is_full(0).unwrap());
         assert!(manifest.is_full(1).unwrap());
         assert!(!manifest.is_full(2).unwrap());
 
-        manifest.add_block(0, 0, 4); // fill in the beginning
+        assert!(manifest.add_block(0, 0, 4).is_ok()); // fill in the beginning
         assert!(manifest.is_full(0).unwrap());
         assert!(manifest.is_full(1).unwrap());
         assert!(!manifest.is_full(2).unwrap());
 
-        manifest.add_block(1, 0, 5); // no op
+        assert!(manifest.add_block(1, 0, 5).is_ok()); // no op
         assert!(manifest.is_full(0).unwrap());
         assert!(manifest.is_full(1).unwrap());
         assert!(!manifest.is_full(2).unwrap());
 
-        manifest.add_block(2, 0, 6); // fill in the end
+        assert!(manifest.add_block(2, 0, 6).is_ok()); // fill in the end
         assert!(manifest.is_full(0).unwrap());
         assert!(manifest.is_full(1).unwrap());
         assert!(manifest.is_full(2).unwrap());
 
-    }
-
-    fn test_fillable_add() {
-        // [ [0,3) ] <- [1,2) // completely inclosed in 1 interval already
-        let mut f = Fillable::new(3);
-        f.add(0,3);
-        f.add(1,2);
-        assert!(f.contents.len() == 1);
-        assert!(f.contents[0].start == 0);
-        assert!(f.contents[0].end == 3);
-
-        // [ [0,3) ] <- [4,5) // completely separate
-        f = Fillable::new(5);
-        f.add(0,3);
-        f.add(4,5);
-        assert!(f.contents.len() == 2);
-        assert!(f.contents[0].start == 0);
-        assert!(f.contents[0].end == 3);
-        assert!(f.contents[1].start == 4);
-        assert!(f.contents[2].end == 5);
-
-        // [ [0,3) ] <- [1,6) // overlap on left side
-        f = Fillable::new(6);
-        f.add(0,3);
-        f.add(1,6);
-        assert!(f.contents.len() == 1);
-        assert!(f.contents[0].start == 0);
-        assert!(f.contents[0].end == 6);
-
-        // [ [0,3) [4,5) ] <- [3,4) // overlap 2 existing intervals
-        f = Fillable::new(5);
-        f.add(0,3);
-        f.add(4,5);
-        f.add(3,4);
-        assert!(f.contents.len() == 1);
-        assert!(f.contents[0].start == 0);
-        assert!(f.contents[0].end == 5);
-
-        // [ [1,3) ] <- [0,1) // overlap on right side
-        f = Fillable::new(3);
-        f.add(1,3);
-        f.add(0,1);
-        assert!(f.contents.len() == 1);
-        assert!(f.contents[0].start == 0);
-        assert!(f.contents[0].end == 3);
     }
 }

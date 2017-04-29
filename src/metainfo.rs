@@ -40,7 +40,7 @@ pub struct MetaInfo {
     pub announce: String,
     pub info_hash: InfoHash,
     /// Size in bytes of each piece
-    pub piece_length: u64,
+    pub piece_length: u32,
     pub piece_hashes: Vec<PieceHash>,
     pub file_info: FileInfo,
 }
@@ -89,7 +89,7 @@ impl MetaInfo {
         // length in bytes of each piece
         let piece_length = info.lookup("piece length".as_bytes())
             .ok_or_err("missing 'piece length'")?
-            .int().ok_or_err("'piece length' not an int")? as u64;
+            .int().ok_or_err("'piece length' not an int")? as u32;
         if piece_length <= 0 {
             return Err(Error::new_str(&format!("piece_length {} < 0", piece_length)));
         }
@@ -120,10 +120,10 @@ impl MetaInfo {
             file_info: Self::load_file_info(info)?,
         };
 
-        if (res.num_pieces() * res.piece_length) < res.total_size() {
+        if ((res.num_pieces() as u64) * res.piece_length as u64) < res.total_size() {
             return Err(Error::new_str("pieces and total size don't match"))
         }
-        if ((res.num_pieces() - 1) * res.piece_length) > res.total_size() {
+        if ((res.num_pieces() as u64 - 1) * res.piece_length as u64) > res.total_size() {
             return Err(Error::new_str("pieces and total size don't match"))
         }
 
@@ -143,8 +143,8 @@ impl MetaInfo {
         })
     }
 
-    pub fn num_pieces(&self) -> u64 {
-        return self.piece_hashes.len() as u64
+    pub fn num_pieces(&self) -> usize {
+        return self.piece_hashes.len()
     }
 
     /// Size in bytes of the whole torrent.

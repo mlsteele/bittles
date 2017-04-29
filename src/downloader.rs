@@ -55,13 +55,13 @@ impl Downloader {
                 Message::Interested =>    state.peer_interested = true,
                 Message::NotInterested => state.peer_interested = false,
                 Message::Bitfield { bits } => {
-                    if (bits.len() as u64) < info.num_pieces() {
+                    if bits.len() < info.num_pieces() {
                         println!("{}", Error::new_str(&format!("bitfield has less bits {} than pieces {}",
                                                            bits.len(), info.num_pieces())));
                     }
                 },
                 Message::Piece { piece, offset, block } => {
-                    datastore.write_block(piece, offset, &block)?;
+                    datastore.write_block(piece as usize, offset, &block)?;
                     s.waiting = false;
                 },
                 _ => {},
