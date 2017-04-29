@@ -84,15 +84,21 @@ impl Downloader {
                 state.am_interested = true;
             }
             if !s.waiting && !state.peer_choking && state.am_interested {
-                let out = Message::Request{
-                    piece: s.piece as u32,
-                    offset: 0,
-                    length: 1 << 14,
-                };
-                println!("sending message: {:?}", out);
-                peer_protocol::send_message(&mut stream, &out)?;
-                s.waiting = true;
-                s.piece += 1;
+                match manifest.manifest.next_desired_block() {
+                    None => {
+                        return Err(Error::todo())
+                    },
+                    Some(desire) => {
+                        let out = Message::Request{
+                            piece: desire.piece,
+                            offset: desire.offset,
+                            length: desire.length,
+                        };
+                        println!("sending message: {:?}", out);
+                        peer_protocol::send_message(&mut stream, &out)?;
+                        s.waiting = true;
+                    }
+                }
             }
             println!("state: {:?}", state);
         }
@@ -114,7 +120,6 @@ pub struct PeerState {
 pub struct BlahState {
     nreceived: u64,
     requested: bool,
-    piece: u64,
     waiting: bool,
 }
 

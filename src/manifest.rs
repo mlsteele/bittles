@@ -44,6 +44,7 @@ impl Manifest {
             num_pieces: num_pieces,
             piece_length: piece_length,
             verified: vec![false; num_pieces],
+            // TODO this is wrong. The last piece could be smaller.
             present: std::iter::repeat(Fillable::new(piece_length)).take(num_pieces).collect(),
         }
     }
@@ -113,6 +114,28 @@ impl Manifest {
     pub fn is_full(&self, piece: usize) -> Result<bool> {
         self.check_piece(piece)?;
         Ok(self.present[piece].is_full())
+    }
+
+    /// Get the next desired block.
+    /// This is the first block that has not been added.
+    pub fn next_desired_block(&self) -> Option<BlockRequest> {
+        for i in 0..self.num_pieces {
+            let p = &self.present[i];
+            if !p.is_full() {
+                if let Some(x) = self.present[i].first_unfilled() {
+                    if x < self.present[i].size() {
+                        let left = self.present[i].size() - x;
+                        let max_length = 1 << 14;
+                        return Some(BlockRequest {
+                            piece: i as u32,
+                            offset: x,
+                            length: cmp::min(left, max_length),
+                        })
+                    }
+                }
+            }
+        }
+        None
     }
 
     /// Check that a piece number is in bounds.
@@ -225,4 +248,13 @@ impl ManifestWithFile {
         Ok(())
     }
 
+}
+
+pub struct BlockRequest {
+    /// Piece index
+    pub piece: u32, // (index)
+    /// Offset within the piece
+    pub offset: u32, // (begin)
+    /// Length in bytes
+    pub length: u32,
 }

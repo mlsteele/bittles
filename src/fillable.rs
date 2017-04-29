@@ -21,6 +21,8 @@ impl Fillable {
         return r;
     }
 
+    pub fn size(&self) -> u32 { return self.size }
+
     /// Fill the range [a, b)
     pub fn add(&mut self, a: u32, b: u32) -> Result<()> {
         //println!("\tadd({}, {}) to {:?}", a, b, self);
@@ -82,6 +84,20 @@ impl Fillable {
 
     pub fn clear(&mut self) -> () {
         self.contents = Vec::new();
+    }
+
+    /// Get the index of the first unfilled byte.
+    pub fn first_unfilled(&self) -> Option<u32> {
+        if self.contents.is_empty() {
+            return Some(0)
+        }
+        if let Some(interval) = self.contents.first() {
+            let end = interval.end;
+            if end < self.size {
+                return Some(end);
+            }
+        }
+        None
     }
 
     fn check_rep(&self) -> Result<()> {
