@@ -16,6 +16,7 @@ mod tracker;
 #[macro_use]
 mod util;
 mod peer_protocol;
+mod fillable;
 
 use bip_bencode::{BencodeRef, BDecodeOpt};
 use docopt::Docopt;
