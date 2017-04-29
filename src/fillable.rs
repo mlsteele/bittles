@@ -1,14 +1,13 @@
 use error::{Error,Result};
 use std::cmp;
-use std::fmt;
-use std;
 
 /// Fillable is a range from [0,size) that can be filled by subranges.
-#[derive(Clone, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Fillable {
     size: u32,
     contents: Vec<Interval>,
 }
+
 impl Fillable {
     pub fn new(size: u32) -> Self {
         Fillable { size: size, contents: Vec::new() }
@@ -114,10 +113,10 @@ impl Fillable {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 struct Interval {
-    start: u32, // inclusive
-    end:   u32, // exclusive
+    pub start: u32, // inclusive
+    pub end:   u32, // exclusive
 }
 
 impl Interval {

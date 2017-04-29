@@ -7,6 +7,10 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 use url::form_urlencoded;
+use std::path::Path;
+use std::fs::File;
+use std::fs;
+use error::{Result};
 
 fn encode(x: &[u8]) -> String {
     // percent_encode(x, QUERY_ENCODE_SET).collect::<String>()
@@ -177,4 +181,18 @@ pub fn tcp_connect<T>(addr: T, timeout: Duration) -> io::Result<net::TcpStream>
         let _ = tx2.send(Err(io::Error::new(io::ErrorKind::TimedOut, "tcp connect timed out")));
     });
     rx.recv().unwrap()
+}
+
+pub fn write_atomic<P1, P2, F>(final_path: P1, temp_path: P2, write: F) -> Result<()>
+    where P1: AsRef<Path>,
+          P2: AsRef<Path>,
+          F: FnOnce(&mut File) -> Result<()>
+{
+    let temp_path = temp_path.as_ref().to_owned();
+    {
+        let mut temp_file = File::create(temp_path.clone())?;
+        write(&mut temp_file)?;
+    }
+    fs::rename(temp_path, final_path)?;
+    Ok(())
 }

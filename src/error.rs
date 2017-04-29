@@ -2,6 +2,7 @@ use std::error;
 use std::fmt;
 use std::result;
 use std::str;
+use serde_cbor;
 
 use bip_bencode;
 use hyper;
@@ -21,6 +22,7 @@ pub enum Error {
     Io(io::Error),
     Bencode(bip_bencode::BencodeParseError),
     Utf8(str::Utf8Error),
+    SerdeCbor(serde_cbor::Error),
 }
 
 impl Error {
@@ -32,6 +34,7 @@ impl Error {
         Error::PeerProtocol(description.to_owned())
     }
 
+    #[allow(dead_code)]
     pub fn todo() -> Error {
         Error::new_str("not implemented")
     }
@@ -55,6 +58,7 @@ impl error::Error for Error {
             &Error::Io(ref error) => error.description(),
             &Error::Bencode(ref error) => error.description(),
             &Error::Utf8(ref error) => error.description(),
+            &Error::SerdeCbor(ref error) => error.description(),
         }
     }
 }
@@ -92,5 +96,11 @@ impl From<bip_bencode::BencodeParseError> for Error {
 impl From<str::Utf8Error> for Error {
     fn from(err: str::Utf8Error) -> Error {
         Error::Utf8(err)
+    }
+}
+
+impl From<serde_cbor::Error> for Error {
+    fn from(err: serde_cbor::Error) -> Error {
+        Error::SerdeCbor(err)
     }
 }

@@ -1,15 +1,18 @@
 use error::{Error,Result};
-use std::io;
 use std::cmp;
 use std::fmt;
 use std;
 use fillable::*;
 use metainfo::*;
+use std::path::{Path,PathBuf};
+use util::write_atomic;
+use std::fs;
+use serde_cbor;
 
 /// Manifest describes the state of what parts of a torrent have been downloaded and verified.
 /// A manifest is associated with a single torrent.
 /// It is safe for it to be behind the state of the disk, but unsafe for it to be ahead.
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Manifest {
     info_hash: InfoHash,
     num_pieces: usize,
@@ -43,15 +46,6 @@ impl Manifest {
             verified: vec![false; num_pieces],
             present: std::iter::repeat(Fillable::new(piece_length)).take(num_pieces).collect(),
         }
-    }
-
-    pub fn load<T: io::Read>(stream: T) -> Result<Self> {
-        return Err(Error::todo());
-        // check(res)?
-    }
-
-    pub fn store<T: io::Write>(stream: T) -> Result<()> {
-        return Err(Error::todo());
     }
 
     /// Sanity check the after a load.
@@ -97,7 +91,7 @@ impl Manifest {
                 } else {
                     (offset + length) % self.piece_length
                 };
-            self.present[last_piece].add(0, upto);
+            self.present[last_piece].add(0, upto)?;
         }
         Ok(())
     }
@@ -123,6 +117,7 @@ impl Manifest {
 
     /// Check that a piece number is in bounds.
     fn check_piece(&self, piece: usize) -> Result<()> {
+        #[allow(unused_comparisons)]
         match 0 <= piece && piece < self.num_pieces {
             true => Ok(()),
             false => Err(Error::new_str(
@@ -130,7 +125,6 @@ impl Manifest {
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -174,4 +168,61 @@ mod tests {
         assert!(manifest.is_full(2).unwrap());
 
     }
+}
+
+pub struct ManifestWithFile {
+    pub manifest: Manifest,
+    path: PathBuf,
+}
+
+impl ManifestWithFile {
+    pub fn load_or_new<P: AsRef<Path>>(info: MetaInfo, path: P) -> Result<Self> {
+        match Self::load_from_path(info.clone(), path.as_ref().clone()) {
+            Ok(x) => {
+                println!("manifest loaded from file");
+                Ok(x)
+            },
+            Err(err) => {
+                println!("manifest created anew because: {:?}", err);
+                Ok(Self::new(info, path))
+            }
+        }
+    }
+
+    fn new<P: AsRef<Path>>(info: MetaInfo, path: P) -> Self {
+        Self {
+            manifest: Manifest::new(info),
+            path: path.as_ref().to_owned(),
+        }
+    }
+
+    fn load_from_path<P: AsRef<Path>>(info: MetaInfo, path: P) -> Result<Self> {
+        let f = fs::File::open(&path)?;
+        let manifest: Manifest = serde_cbor::de::from_reader(f)?;
+        if manifest.info_hash != info.info_hash {
+            return Err(Error::Generic("loaded mismatched manifest info hash".to_owned()));
+        }
+        manifest.check()?;
+        Ok(Self {
+            manifest: manifest,
+            path: path.as_ref().to_owned(),
+        })
+    }
+
+    pub fn store(&self) -> Result<()> {
+        println!("saving manifest: {:?}", self.path);
+        let temp_path = {
+            let mut fname: String = self.path.file_name()
+                .and_then(|x|x.to_str())
+                .ok_or(Error::Generic("missing file name".to_owned()))?.to_owned();
+            fname.push_str(".swp");
+            self.path.with_file_name(fname)
+        };
+        write_atomic(&self.path, temp_path, |writer| {
+            serde_cbor::ser::to_writer_sd(writer, &self.manifest)?;
+            Ok(())
+        })?;
+        Ok(())
+    }
+
 }

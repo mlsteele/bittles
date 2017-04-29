@@ -9,13 +9,15 @@ use std::path::Path;
 use tracker::{TrackerClient};
 use util::{tcp_connect};
 use std::time::Duration;
+use manifest::ManifestWithFile;
 
 pub struct Downloader {
 }
 
 impl Downloader {
-    pub fn start<P: AsRef<Path>>(info: MetaInfo, peer_id: PeerID, store_path: P) -> Result<()> {
+    pub fn start<P: AsRef<Path>>(info: MetaInfo, peer_id: PeerID, store_path: P, manifest_path: P) -> Result<()> {
         let mut datastore = DataStore::create_or_open(&info, store_path)?;
+        let mut manifest = ManifestWithFile::load_or_new(info.clone(), manifest_path)?;
         let mut tc = TrackerClient::new(info.clone(), peer_id.clone())?;
 
         let tracker_res = tc.easy_start()?;
@@ -62,6 +64,8 @@ impl Downloader {
                 },
                 Message::Piece { piece, offset, block } => {
                     datastore.write_block(piece as usize, offset, &block)?;
+                    manifest.manifest.add_block(piece as usize, offset, block.len() as u32)?;
+                    manifest.store()?;
                     s.waiting = false;
                 },
                 _ => {},

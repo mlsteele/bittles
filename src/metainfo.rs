@@ -7,7 +7,7 @@ use std;
 use itertools::Itertools;
 
 pub const INFO_HASH_SIZE: usize = 20;
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct InfoHash { pub hash: [u8; PIECE_HASH_SIZE] }
 
 impl fmt::Debug for InfoHash {

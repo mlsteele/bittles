@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 extern crate bip_bencode;
 extern crate byteorder;
 extern crate docopt;
@@ -5,6 +7,10 @@ extern crate hyper;
 extern crate itertools;
 extern crate ring;
 extern crate rustc_serialize;
+extern crate serde;
+#[macro_use]
+extern crate serde_derive;
+extern crate serde_cbor;
 extern crate url;
 
 mod downloader;
@@ -158,6 +164,14 @@ fn inner() -> Result<(),Box<Error>> {
     };
     println!("datastore path: {:?}", datastore_path);
 
-    Downloader::start(info, peer_id, datastore_path)?;
+    let manifest_path = {
+        let mut x = cwd.clone();
+        x.push("tmp");
+        x.push("manifest");
+        x
+    };
+    println!("manifest path: {:?}", manifest_path);
+
+    Downloader::start(info, peer_id, datastore_path, manifest_path)?;
     Ok(())
 }
