@@ -15,6 +15,7 @@ pub type Result<T> = result::Result<T, Error>;
 #[derive(Debug)]
 pub enum Error {
     Generic(String),
+    Annotated(String, Box<Error>),
     PeerProtocol(String),
     Ring(ring::error::Unspecified),
     Url(url::ParseError),
@@ -34,6 +35,14 @@ impl Error {
         Error::PeerProtocol(description.to_owned())
     }
 
+    pub fn annotate<E>(err: E, description: &str) -> Error
+        where E: Into<Error>,
+    {
+        let err2: Error = err.into();
+        let description2: String = format!("{}: {}", description, error::Error::description(&err2));
+        Error::Annotated(description2, Box::new(err2))
+    }
+
     #[allow(dead_code)]
     pub fn todo() -> Error {
         Error::new_str("not implemented")
@@ -51,6 +60,7 @@ impl error::Error for Error {
     fn description(&self) -> &str {
         match self {
             &Error::Generic(ref description) => description,
+            &Error::Annotated(ref description, _) => description,
             &Error::PeerProtocol(ref description) => description,
             &Error::Ring(ref error) => error.description(),
             &Error::Url(ref error) => error.description(),

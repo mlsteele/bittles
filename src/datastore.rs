@@ -19,7 +19,8 @@ impl DataStore {
             .write(true)
             .create(true)
             .truncate(false)
-            .open(path)?;
+            .open(path)
+            .map_err(|e| Error::annotate(e, "datastore file could not be opened"))?;
         f.set_len(metainfo.total_size() as u64)?;
         Ok(DataStore {
             file: f,
