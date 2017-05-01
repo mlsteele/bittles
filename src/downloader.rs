@@ -9,7 +9,7 @@ use std::path::Path;
 use tracker::{TrackerClient};
 use util::{tcp_connect};
 use std::time::Duration;
-use manifest::ManifestWithFile;
+use manifest::{ManifestWithFile,Manifest};
 use fillable::*;
 
 pub struct Downloader {
@@ -46,6 +46,8 @@ impl Downloader {
         }
         let remote_peer_id = peer_protocol::handshake_read_2(&mut stream)?;
         println!("remote peer id: {:?}", remote_peer_id);
+
+        maybe_send_bitfield(&mut stream, &manifest.manifest)?;
 
         let mut state = PeerState::new(info.num_pieces());
         let mut s = BlahState::default();
@@ -121,6 +123,11 @@ impl Downloader {
             println!("state: {:?}", state);
         }
     }
+}
+
+fn maybe_send_bitfield<T: Write>(stream: &mut T, manifest: &Manifest) -> Result<()> {
+    // TODO(jessk)
+    Ok(())
 }
 
 #[derive(Debug)]

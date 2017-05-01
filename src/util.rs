@@ -158,6 +158,14 @@ pub fn byte_to_bits(b: u8) -> [bool; 8] {
     z
 }
 
+pub fn bits_to_byte(b: [bool; 8]) -> u8 {
+    let mut z = 0;
+    for i in 0..8 {
+        if b[7-i] { z += (2 as u8).pow(i as u32); }
+    }
+    z
+}
+
 macro_rules! matches(
     ($e:expr, $p:pat) => (
         match $e {

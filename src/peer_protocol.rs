@@ -7,7 +7,7 @@ use std::io::Read;
 use std::io;
 use std;
 use itertools::Itertools;
-use util::{ReadWire,byte_to_bits};
+use util::{ReadWire,byte_to_bits,bits_to_byte};
 use metainfo::{INFO_HASH_SIZE};
 
 pub const PEERID_SIZE: usize = 20;
@@ -112,9 +112,9 @@ pub fn read_message<T: io::Read>(stream: &mut T) -> Result<Message> {
     // Limit the stream to read to the end of this message.
     let mut stream = stream.take(body_length as u64);
     match message_id {
-        0 | 1 | 2 | 3 =>
+        0 | 1 | 2 | 3 => // Choke; Unchoke; Interested; NotInterested
             Err(Error::new_peer(&format!("message id {} specified non-zero body {}", message_id, body_length))),
-        4 => {
+        4 => { // Message::Have
             if body_length != NUM_LEN {
                 return Err(Error::new_peer(&format!("message wrong size 'Have' {} != 4", body_length)));
             }
@@ -122,7 +122,7 @@ pub fn read_message<T: io::Read>(stream: &mut T) -> Result<Message> {
                 piece: stream.read_u32()?
             })
         },
-        5 => {
+        5 => { // Message::Bitfield
             let mut bits: Vec<bool> = Vec::new();
             for byte in stream.read_n(body_length as u64)? {
                 bits.extend_from_slice(&byte_to_bits(byte));
@@ -131,7 +131,7 @@ pub fn read_message<T: io::Read>(stream: &mut T) -> Result<Message> {
                 bits: bits,
             })
         },
-        6 => {
+        6 => { // Message::Request
             if body_length != NUM_LEN * 3 {
                 return Err(Error::new_peer(&format!("message wrong size 'Request' {} != 12", body_length)));
             }
@@ -141,7 +141,7 @@ pub fn read_message<T: io::Read>(stream: &mut T) -> Result<Message> {
                 length: stream.read_u32()?,
             })
         },
-        7 => {
+        7 => { // Message::Piece
             if body_length < NUM_LEN * 2 {
                 return Err(Error::new_peer(&format!("message wrong size 'Piece' {} < 8", body_length)));
             }
@@ -155,7 +155,7 @@ pub fn read_message<T: io::Read>(stream: &mut T) -> Result<Message> {
                 block: block,
             })
         },
-        8 => {
+        8 => { // Message::Cancel
             if body_length != NUM_LEN * 3 {
                 return Err(Error::new_peer(&format!("message wrong size 'Cancel' {} != 12", body_length)));
             }
@@ -165,7 +165,7 @@ pub fn read_message<T: io::Read>(stream: &mut T) -> Result<Message> {
                 length: stream.read_u32()?,
             })
         },
-        9 => {
+        9 => { // Message::Port
             if body_length != NUM_LEN {
                 return Err(Error::new_peer(&format!("message wrong size 'Port' {} != 4", body_length)));
             }
@@ -233,6 +233,11 @@ pub fn send_message<T: io::Write>(stream: &mut T, msg: &Message) -> Result<()> {
             BigEndian::write_u32(&mut buf[4..8], offset);
             BigEndian::write_u32(&mut buf[8..], length);
             send_message_frame(stream, message_id, &buf)?;
+        },
+        Message::Bitfield { ref bits } => { // TODO(jessk) why is `ref` required here?
+            // TODO(jessk) make this work
+            //let msg: [u8] = bits.chunks(8).map(|bb| bits_to_byte(bb)).collect();
+            //send_message_frame(stream, message_id, &msg)?;
         },
         _ => {
             Err(Error::new_str(&format!("send_message not implemented for id {}", message_id)))?;
