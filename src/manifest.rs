@@ -223,7 +223,7 @@ impl ManifestWithFile {
         let f = fs::File::open(&path)?;
         let manifest: Manifest = serde_cbor::de::from_reader(f)?;
         if manifest.info_hash != info.info_hash {
-            return Err(Error::Generic("loaded mismatched manifest info hash".to_owned()));
+            return Err(Error::new_str(&"loaded mismatched manifest info hash"));
         }
         manifest.check()?;
         Ok(Self {
@@ -237,7 +237,7 @@ impl ManifestWithFile {
         let temp_path = {
             let mut fname: String = self.path.file_name()
                 .and_then(|x|x.to_str())
-                .ok_or(Error::Generic("missing file name".to_owned()))?.to_owned();
+                .ok_or(Error::new_str("missing file name"))?.to_owned();
             fname.push_str(".swp");
             self.path.with_file_name(fname)
         };

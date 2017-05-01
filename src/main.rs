@@ -22,6 +22,7 @@ mod tracker;
 #[macro_use]
 mod util;
 mod peer_protocol;
+mod peer_handle;
 mod fillable;
 
 use bip_bencode::{BencodeRef, BDecodeOpt};
