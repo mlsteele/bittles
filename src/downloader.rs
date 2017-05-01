@@ -10,6 +10,7 @@ use tracker::{TrackerClient};
 use util::{tcp_connect};
 use std::time::Duration;
 use manifest::ManifestWithFile;
+use fillable::*;
 
 pub struct Downloader {
 }
@@ -46,7 +47,7 @@ impl Downloader {
         let remote_peer_id = peer_protocol::handshake_read_2(&mut stream)?;
         println!("remote peer id: {:?}", remote_peer_id);
 
-        let mut state = PeerState::default();
+        let mut state = PeerState::new(info.num_pieces());
         let mut s = BlahState::default();
         loop {
             let m = peer_protocol::read_message(&mut stream)?;
@@ -61,6 +62,23 @@ impl Downloader {
                         println!("{}", Error::new_str(&format!("bitfield has less bits {} than pieces {}",
                                                            bits.len(), info.num_pieces())));
                     }
+                    let mut i_start = 0;
+                    let mut in_interval = false;
+                    for b in 0..info.num_pieces() {
+                        if bits[b] && !in_interval {
+                            i_start = b;
+                            in_interval = true;
+                        } else if !bits[b] && in_interval {
+                            state.has.add(i_start as u32, b as u32);
+                            in_interval = false;
+                        }
+                    }
+                    if in_interval {
+                        state.has.add(i_start as u32, info.num_pieces() as u32);
+                    }
+                },
+                Message::Have { piece } => {
+                    state.has.add(piece, piece+1);
                 },
                 Message::Piece { piece, offset, block } => {
                     datastore.write_block(piece as usize, offset, &block)?;
@@ -114,6 +132,8 @@ pub struct PeerState {
 
     am_interested: bool,
     am_choking: bool,
+
+    has: Fillable,
 }
 
 #[derive(Debug, Default)]
@@ -123,13 +143,14 @@ pub struct BlahState {
     waiting: bool,
 }
 
-impl Default for PeerState {
-    fn default() -> Self {
+impl PeerState {
+    fn new(num_pieces: usize) -> Self {
         PeerState {
             peer_interested: false,
             peer_choking: true,
             am_interested: false,
             am_choking: true,
+            has: Fillable::new(num_pieces as u32),
         }
     }
 }

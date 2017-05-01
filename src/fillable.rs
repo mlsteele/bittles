@@ -23,6 +23,15 @@ impl Fillable {
 
     pub fn size(&self) -> u32 { return self.size }
 
+    pub fn has(&self, n: u32) -> bool {
+        for i in self.contents.iter() {
+            if n < i.end {
+                return i.start <= n;
+            }
+        }
+        return false;
+    }
+
     /// Fill the range [a, b)
     pub fn add(&mut self, a: u32, b: u32) -> Result<()> {
         //println!("\tadd({}, {}) to {:?}", a, b, self);
@@ -157,6 +166,10 @@ mod tests {
         // [ [0,3) ] <- [1,2) // completely inclosed in 1 interval already
         let mut f = Fillable::new(3);
         assert!(f.add(0,3).is_ok());
+        assert!(f.has(0));
+        assert!(f.has(1));
+        assert!(f.has(2));
+        assert!(!f.has(3));
         assert!(f.add(1,2).is_ok());
         assert!(f.contents.len() == 1);
         assert!(f.contents[0].start == 0);
@@ -166,6 +179,9 @@ mod tests {
         f = Fillable::new(5);
         assert!(f.add(0,3).is_ok());
         assert!(f.add(4,5).is_ok());
+        assert!(!f.has(3));
+        assert!(f.has(4));
+        assert!(!f.has(5));
         assert!(f.contents.len() == 2);
         assert!(f.contents[0].start == 0);
         assert!(f.contents[0].end == 3);
