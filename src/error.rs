@@ -1,7 +1,8 @@
-use std::error;
+use std;
 use std::fmt;
 use std::result;
 use std::str;
+use std::sync::mpsc;
 use serde_cbor;
 
 use bip_bencode;
@@ -24,6 +25,8 @@ pub enum Error {
     Bencode(bip_bencode::BencodeParseError),
     Utf8(str::Utf8Error),
     SerdeCbor(serde_cbor::Error),
+    MpscSendError(Box<std::error::Error>),
+    MpscRecvError(mpsc::RecvError),
 }
 
 impl Error {
@@ -39,7 +42,9 @@ impl Error {
         where E: Into<Error>,
     {
         let err2: Error = err.into();
-        let description2: String = format!("{}: {}", description, error::Error::description(&err2));
+        let description2: String = format!("{}: {}",
+                                           description,
+                                           std::error::Error::description(&err2));
         Error::Annotated(description2, Box::new(err2))
     }
 
@@ -56,7 +61,7 @@ impl fmt::Display for Error {
     }
 }
 
-impl error::Error for Error {
+impl std::error::Error for Error {
     fn description(&self) -> &str {
         match self {
             &Error::Generic(ref description) => description,
@@ -69,6 +74,25 @@ impl error::Error for Error {
             &Error::Bencode(ref error) => error.description(),
             &Error::Utf8(ref error) => error.description(),
             &Error::SerdeCbor(ref error) => error.description(),
+            &Error::MpscSendError(ref error) => error.description(),
+            &Error::MpscRecvError(ref error) => error.description(),
+        }
+    }
+
+    fn cause(&self) -> Option<&std::error::Error> {
+        match self {
+            &Error::Generic(_) => None,
+            &Error::Annotated(_, ref error) => Some(error.as_ref()),
+            &Error::PeerProtocol(_) => None,
+            &Error::Ring(ref error) => Some(error),
+            &Error::Url(ref error) => Some(error),
+            &Error::Hyper(ref error) => Some(error),
+            &Error::Io(ref error) => Some(error),
+            &Error::Bencode(ref error) => Some(error),
+            &Error::Utf8(ref error) => Some(error),
+            &Error::SerdeCbor(ref error) => Some(error),
+            &Error::MpscSendError(_) => None,
+            &Error::MpscRecvError(ref error) => Some(error),
         }
     }
 }
@@ -112,5 +136,19 @@ impl From<str::Utf8Error> for Error {
 impl From<serde_cbor::Error> for Error {
     fn from(err: serde_cbor::Error) -> Error {
         Error::SerdeCbor(err)
+    }
+}
+
+impl<T> From<mpsc::SendError<T>> for Error
+    where T: std::marker::Send + 'static
+{
+    fn from(err: mpsc::SendError<T>) -> Error {
+        Error::MpscSendError(Box::new(err))
+    }
+}
+
+impl From<mpsc::RecvError> for Error {
+    fn from(err: mpsc::RecvError) -> Error {
+        Error::MpscRecvError(err)
     }
 }
