@@ -1,14 +1,23 @@
 use byteorder::{ByteOrder,BigEndian};
-use error::{Error,Result};
-use metainfo::{InfoHash};
 use ring::rand::SystemRandom;
 use std::fmt;
 use std::io::Read;
 use std::io;
 use std;
+use bytes::{BytesMut,Buf};
+use tokio_core::net;
+use tokio_core::net::{TcpStream};
+use tokio_io;
+use tokio_io::{AsyncWrite,AsyncRead};
+use tokio_io::io::{WriteHalf,ReadHalf};
+use futures::future::{Future,BoxFuture};
+use futures::future;
+
+use error::{Error,Result};
 use itertools::Itertools;
-use util::{ReadWire,byte_to_bits,bits_to_byte};
 use metainfo::{INFO_HASH_SIZE};
+use metainfo::{InfoHash};
+use util::{ReadWire,byte_to_bits,bits_to_byte};
 
 pub const PEERID_SIZE: usize = 20;
 #[derive(Clone)]
@@ -40,6 +49,154 @@ impl PeerID {
 // In version 1.0 of the BitTorrent protocol, pstrlen = 19, and pstr = "BitTorrent protocol".
 const HANDSHAKE_PROTOCOL: &'static str = "BitTorrent protocol";
 
+pub struct BitTorrentPeerCodec;
+
+impl BitTorrentPeerCodec {
+    // Sense whether there's a frame.
+    // Does not take any bytes from src.
+    // Returns Some(Message length).
+    // Message length includes does not include its own 4 bytes.
+    // For example, for an `Interested`, message length would be 1.
+    // Returns None if not enough data to read a frame.
+    fn sense_frame(src: &BytesMut) -> Option<u32> {
+        const NUM_LEN: usize = 4;
+        if src.len() < NUM_LEN {
+            // Wait for the frame size
+            return None
+        }
+        Some(BigEndian::read_u32(src.as_ref()))
+    }
+
+    // Decode a single message.
+    // Called with the exact frame (excluding message length tag).
+    fn decode_message<B: Buf>(mut src: B) -> std::result::Result<Message, Error> {
+        type BE = BigEndian;
+        const NUM_LEN: usize = 4;
+        use peer_protocol::Message::*;
+
+        let message_length = src.remaining();
+
+        if message_length == 0 {
+            return Err(Error::new_peer(&format!("message length 0")));
+        }
+        let message_id = src.get_u8();
+
+        if message_length == 1 {
+            return match message_id {
+                0 => Ok(Choke),
+                1 => Ok(Unchoke),
+                2 => Ok(Interested),
+                3 => Ok(NotInterested),
+                4 | 5 | 6 | 7 | 8 | 9 =>
+                    Err(Error::new_peer(&format!("message id {} specified no body", message_id))),
+                _ => Err(Error::new_peer(&format!("unknown message id {} (no-body)", message_id))),
+            }
+        }
+
+        let body_length: usize = message_length - 1;
+
+        match message_id {
+            0 | 1 | 2 | 3 => // Choke; Unchoke; Interested; NotInterested
+                Err(Error::new_peer(&format!("message id {} specified non-zero body {}", message_id, body_length))),
+            4 => { // Message::Have
+                if body_length != NUM_LEN {
+                    return Err(Error::new_peer(&format!("message wrong size 'Have' {} != 4", body_length)));
+                }
+                Ok(Have {
+                    piece: src.get_u32::<BE>()
+                })
+            },
+            5 => { // Message::Bitfield
+                let mut bits: Vec<bool> = Vec::new();
+                for byte in src.iter() {
+                    bits.extend_from_slice(&byte_to_bits(byte));
+                }
+                Ok(Bitfield {
+                    bits: bits,
+                })
+            },
+            6 => { // Message::Request
+                if body_length != NUM_LEN * 3 {
+                    return Err(Error::new_peer(&format!("message wrong size 'Request' {} != 12", body_length)));
+                }
+                Ok(Request {
+                    piece: src.get_u32::<BE>(),
+                    offset: src.get_u32::<BE>(),
+                    length: src.get_u32::<BE>(),
+                })
+            },
+            7 => { // Message::Piece
+                if body_length < NUM_LEN * 2 {
+                    return Err(Error::new_peer(&format!("message wrong size 'Piece' {} < 8", body_length)));
+                }
+                let piece = src.get_u32::<BE>();
+                let offset = src.get_u32::<BE>();
+                let block = src.bytes().to_vec();
+                Ok(Piece {
+                    piece: piece,
+                    offset: offset,
+                    block: block,
+                })
+            },
+            8 => { // Message::Cancel
+                if body_length != NUM_LEN * 3 {
+                    return Err(Error::new_peer(&format!("message wrong size 'Cancel' {} != 12", body_length)));
+                }
+                Ok(Cancel {
+                    piece: src.get_u32::<BE>(),
+                    offset: src.get_u32::<BE>(),
+                    length: src.get_u32::<BE>(),
+                })
+            },
+            9 => { // Message::Port
+                if body_length != NUM_LEN {
+                    return Err(Error::new_peer(&format!("message wrong size 'Port' {} != 4", body_length)));
+                }
+                Ok(Port {
+                    port: src.get_u32::<BE>(),
+                })
+            },
+            _ => Err(Error::new_peer(&format!("unknown message id {} (+body)", message_id))),
+        }
+    }
+
+}
+
+impl tokio_io::codec::Decoder for BitTorrentPeerCodec {
+    type Item = Message;
+    type Error = Error;
+
+    fn decode(&mut self, src: &mut BytesMut) -> std::result::Result<Option<Self::Item>, Self::Error> {
+        const NUM_LEN: usize = 4;
+        use bytes::IntoBuf;
+
+        let message_length = match Self::sense_frame(&src) {
+            Some(x) => x,
+            None => return Ok(None),
+        };
+
+        // Drop the bytes representing message_length
+        let _ = src.split_to(NUM_LEN);
+
+        // Take the message out of the source.
+        // Also convert it to a Buf.
+        // And replace the `src` name to confuse myself.
+        let src = src.split_to(message_length as usize).freeze().into_buf();
+
+        Self::decode_message(src).map(Some)
+    }
+
+}
+
+impl tokio_io::codec::Encoder for BitTorrentPeerCodec {
+    type Item = Message;
+    type Error = Error;
+
+    fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> std::result::Result<(), Self::Error> {
+        unimplemented!();
+    }
+}
+
 /// Read the first half of the peer handshake.
 pub fn handshake_read_1<T: io::Read>(stream: &mut T) -> Result<InfoHash> {
     // Protocol string
@@ -58,12 +215,70 @@ pub fn handshake_read_1<T: io::Read>(stream: &mut T) -> Result<InfoHash> {
     Ok(InfoHash { hash: info_hash })
 }
 
+/// Read the first half of the peer handshake.
+pub fn handshake_read_1_async<R>(stream: R)
+                                 -> BoxFuture<(R,InfoHash), Error>
+    where R: AsyncRead + Send + 'static
+{
+    use tokio_io::io::{read_exact};
+
+    future::ok::<_, std::io::Error>(())
+        // Protocol string
+        .and_then(|_| {
+            read_exact(stream, [0; 1])
+        })
+        .and_then(|(stream, buf_pstrlen)| {
+            let pstrlen: u8 = buf_pstrlen[0];
+
+            let mut buf_pstr = vec![0; pstrlen as usize];
+
+            read_exact(stream, buf_pstr)
+        })
+        .and_then(|(stream, pstr)| {
+            if pstr != HANDSHAKE_PROTOCOL.as_bytes() {
+                let err_str = format!("unrecognized protocol in handshake: {:?}", pstr);
+                let err2 = std::io::Error::new(std::io::ErrorKind::InvalidData, err_str);
+                return Err(err2)
+            }
+            Ok(stream)
+        })
+        .and_then(|stream| {
+            // 8 reserved bytes.
+            read_exact(stream, [0; 8])
+        })
+        .and_then(|(stream, _)| {
+            // Info hash
+            let mut info_hash = [0; INFO_HASH_SIZE];
+            read_exact(stream, info_hash)
+        })
+        .and_then(|(stream, info_hash)| {
+            Ok((stream, InfoHash { hash: info_hash }))
+        })
+        .map_err(|e| e.into())
+        .boxed()
+}
+
 /// Read the last half of the peer handshake.
 pub fn handshake_read_2<T: io::Read>(stream: &mut T) -> Result<PeerID> {
     // Peer id
     let mut peer_id = [0; PEERID_SIZE];
     stream.read_exact(&mut peer_id)?;
     Ok(PeerID{id: peer_id})
+}
+
+/// Read the last half of the peer handshake.
+pub fn handshake_read_2_async<R>(stream: R) -> BoxFuture<(R,PeerID), Error>
+    where R: AsyncRead + Send + 'static
+{
+    use tokio_io::io::{read_exact};
+
+    // Peer id
+    read_exact(stream, [0; PEERID_SIZE])
+        .map(|(stream, peer_id)| {
+            (stream, PeerID{id: peer_id})
+        })
+        .map_err(|e| e.into())
+        .boxed()
 }
 
 /// Sends one side of the peer handshake.
@@ -86,6 +301,38 @@ pub fn handshake_send<T: io::Write>(stream: &mut T, info_hash: InfoHash, peer_id
     stream.write(&peer_id.id)?;
 
     Ok(())
+}
+
+/// Used both for starting and handling connections.
+pub fn handshake_send_async<W>(stream: W, info_hash: InfoHash, peer_id: PeerID)
+                               -> BoxFuture<W, Error>
+    where W: AsyncWrite + Send + 'static
+{
+    use tokio_io::io::write_all;
+
+    // Protocol string
+    let pstr = HANDSHAKE_PROTOCOL.as_bytes();
+    let pstrlen: u8 = pstr.len() as u8;
+
+    write_all(stream, [pstrlen])
+        .and_then(move |(stream,_)| {
+            write_all(stream, pstr)
+        })
+        .and_then(|(stream,_)| {
+            // 8 reserved bytes
+            write_all(stream, [0; 8])
+        })
+        .and_then(move |(stream,_)| {
+            // Info hash
+            write_all(stream, info_hash.hash)
+        })
+        .and_then(move |(stream,_)| {
+            // Peer id
+            write_all(stream, peer_id.id)
+        })
+        .map(|(stream,_)| stream)
+        .map_err(|e| e.into())
+        .boxed()
 }
 
 pub fn read_message<T: io::Read>(stream: &mut T) -> Result<Message> {

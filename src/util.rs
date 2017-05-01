@@ -1,15 +1,22 @@
 use byteorder::{ByteOrder,BigEndian};
 use hyper::Url;
+use std::fs::File;
+use std::fs;
 use std::io;
 use std::marker::Send;
-use std::net;
+use std::net::SocketAddr;
+use std::path::Path;
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
+use std;
+use tokio_core::net;
+use tokio_core::net::{TcpStream};
 use url::form_urlencoded;
-use std::path::Path;
-use std::fs::File;
-use std::fs;
+use tokio_core::reactor;
+use futures::future::Future;
+use futures::future;
+
 use error::{Result};
 
 fn encode(x: &[u8]) -> String {
@@ -175,13 +182,13 @@ macro_rules! matches(
     )
 );
 
-pub fn tcp_connect<T>(addr: T, timeout: Duration) -> io::Result<net::TcpStream>
-    where T: net::ToSocketAddrs + Send + 'static
+pub fn tcp_connect<T>(addr: T, timeout: Duration) -> io::Result<std::net::TcpStream>
+    where T: std::net::ToSocketAddrs + Send + 'static
 {
     let (tx1, rx) = mpsc::sync_channel(0);
     let tx2 = tx1.clone();
     thread::spawn(move|| {
-        let stream = net::TcpStream::connect(addr);
+        let stream = std::net::TcpStream::connect(addr);
         let _ = tx1.send(stream);
     });
     thread::spawn(move|| {
@@ -189,6 +196,18 @@ pub fn tcp_connect<T>(addr: T, timeout: Duration) -> io::Result<net::TcpStream>
         let _ = tx2.send(Err(io::Error::new(io::ErrorKind::TimedOut, "tcp connect timed out")));
     });
     rx.recv().unwrap()
+}
+
+pub fn tcp_connect2(addr: &SocketAddr, timeout: Duration, handle: &reactor::Handle)
+                    -> Box<Future<Item=Option<TcpStream>, Error=io::Error>>
+{
+    let timeout = reactor::Timeout::new(timeout, handle).expect("tcp_connect2: could not create timeout");
+    let timeout = timeout.map(|_|None::<TcpStream>);
+    let stream = TcpStream::connect(addr, handle).map(|x|Some(x));
+    timeout.select(stream)
+        .map(|(v,_)| v)
+        .map_err(|(e,_)| e)
+        .boxed()
 }
 
 pub fn write_atomic<P1, P2, F>(final_path: P1, temp_path: P2, write: F) -> Result<()>

@@ -12,6 +12,10 @@ extern crate serde;
 extern crate serde_derive;
 extern crate serde_cbor;
 extern crate url;
+extern crate futures;
+extern crate tokio_core;
+extern crate tokio_io;
+extern crate bytes;
 
 mod downloader;
 mod datastore;
@@ -26,16 +30,17 @@ mod fillable;
 
 use bip_bencode::{BencodeRef, BDecodeOpt};
 use docopt::Docopt;
-use downloader::Downloader;
 use itertools::Itertools;
-use metainfo::*;
-use manifest::*;
-use peer_protocol::{PeerID};
 use ring::rand::SystemRandom;
 use std::error::Error;
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
+use tokio_core::reactor;
+
+use peer_protocol::{PeerID};
+use metainfo::*;
+use manifest::*;
 use util::{replace_query_parameters, QueryParameters};
 
 const USAGE: &'static str = "
@@ -172,6 +177,6 @@ fn inner() -> Result<(),Box<Error>> {
     };
     println!("manifest path: {:?}", manifest_path);
 
-    Downloader::start(info, peer_id, datastore_path, manifest_path)?;
+    downloader::start(info, peer_id, datastore_path, manifest_path)?;
     Ok(())
 }
