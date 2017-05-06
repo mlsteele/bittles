@@ -1,6 +1,7 @@
-use futures::{Stream,Sink};
 use futures::future::{Future,FutureResult};
 use futures::future;
+use futures::{Stream,Sink};
+use std::collections::vec_deque::{VecDeque};
 use std::default::Default;
 use std::net::{SocketAddr};
 use std::path::Path;
@@ -18,7 +19,7 @@ use metainfo::{MetaInfo,InfoHash};
 use peer_protocol::{PeerID,Message,BitTorrentPeerCodec};
 use peer_protocol;
 use tracker::{TrackerClient};
-use util::{tcp_connect2,BxFuture,FutureEnhanced};
+use util::{tcp_connect2,BxFuture,FutureEnhanced,VecDequeStream};
 
 type PeerStream = Framed<TcpStream, BitTorrentPeerCodec>;
 
@@ -170,7 +171,7 @@ fn connect_peer(
 {
     let info_hash2 = info_hash.clone();
 
-    println!("connecting...");
+    println!("connecting to {} ...", addr);
     tcp_connect2(&addr, Duration::from_millis(3000), &handle)
         .map_err(|e| Error::annotate(e, "peer connection failed"))
         .and_then(|stream| -> FutureResult<TcpStream,Error> {
@@ -213,11 +214,15 @@ fn connect_peer(
 /// Compose the main loop.
 fn main_loop(stream: PeerStream, dstate: DownloaderState) -> BxFuture<(), Error> {
     let lstate: LoopState = (stream, dstate);
-    future::loop_fn(lstate, loop_step).bxed()
+    future::loop_fn(lstate, loop_step)
+        .map(|loop_result| {
+            println!("loop finished: {:?}", loop_result);
+        })
+        .bxed()
 }
 
 /// One step of the main loop.
-fn loop_step(lstate: LoopState) -> BxFuture<future::Loop<(), LoopState>, Error> {
+fn loop_step(lstate: LoopState) -> BxFuture<future::Loop<String, LoopState>, Error> {
     use futures::future::Loop::{Break,Continue};
     let (stream, mut dstate) = lstate;
     // Note: There are many `bxed` calls in here because match arms must return the same type.
@@ -227,18 +232,17 @@ fn loop_step(lstate: LoopState) -> BxFuture<future::Loop<(), LoopState>, Error> 
         .into_future()
         .map_err(|(err, _stream)| err)
         .and_then(move |(omsg, stream)| { match omsg {
-            None => future::ok(Break(())).bxed(),
+            None => future::ok(Break("event stream ended".to_owned())).bxed(),
             Some(msg) => {
                 match single_step(msg, &mut dstate) {
                     Err(err) => future::err(err).bxed(),
-                    Ok(x) => match x {
-                        Some(out) => {
-                            stream.send(out).map(|stream| {
-                                Continue((stream, dstate))
-                            }).bxed()
-                        }
-                        None => future::ok(Continue((stream, dstate))).bxed()
-                    }
+                    Ok(outs) => {
+                        let n_outs = outs.len();
+                        stream.send_all(VecDequeStream::<Message, Error>::new(outs)).map(move |(stream, _)| {
+                            println!("sent {}", n_outs);
+                            Continue((stream, dstate))
+                        })
+                    }.bxed()
                 }
             }
         }}).bxed()
@@ -246,8 +250,9 @@ fn loop_step(lstate: LoopState) -> BxFuture<future::Loop<(), LoopState>, Error> 
 
 /// One synchronous step.
 /// Returns a message to send.
-fn single_step(msg: Message, dstate: &mut DownloaderState) -> Result<Option<Message>> {
-    println!("message {}: {}", dstate.blah_state.nreceived, msg.summarize());
+fn single_step(msg: Message, dstate: &mut DownloaderState) -> Result<VecDeque<Message>> {
+    let mut outs = VecDeque::new();
+    println!("recv message {}: {}", dstate.blah_state.nreceived, msg.summarize());
     dstate.blah_state.nreceived += 1;
     match msg {
         Message::Choke =>         dstate.peer_state.peer_choking = true,
@@ -289,13 +294,13 @@ fn single_step(msg: Message, dstate: &mut DownloaderState) -> Result<Option<Mess
         let out = Message::Unchoke{};
         println!("sending message: {:?}", out);
         dstate.peer_state.am_choking = false;
-        return Ok(Some(out));
+        outs.push_back(out);
     }
     if dstate.blah_state.nreceived >= 1 && !dstate.peer_state.am_interested {
         let out = Message::Interested{};
         println!("sending message: {:?}", out);
         dstate.peer_state.am_interested = true;
-        return Ok(Some(out));
+        outs.push_back(out);
     }
     if !dstate.blah_state.waiting && !dstate.peer_state.peer_choking && dstate.peer_state.am_interested {
         match dstate.manifest.manifest.next_desired_block() {
@@ -310,13 +315,12 @@ fn single_step(msg: Message, dstate: &mut DownloaderState) -> Result<Option<Mess
                 };
                 println!("sending message: {:?}", out);
                 dstate.blah_state.waiting = true;
-                return Ok(Some(out));
+                outs.push_back(out);
             }
         }
     }
-    println!("state: {:?}", dstate.peer_state);
 
-    Ok(None)
+    Ok(outs)
 }
 
 #[derive(Debug)]

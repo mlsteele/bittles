@@ -1,5 +1,10 @@
 use byteorder::{ByteOrder,BigEndian};
+use bytes::{BytesMut,BufMut};
+use futures::future::Future;
+use futures::future;
+use futures::{Stream,Sink,Poll};
 use hyper::Url;
+use std::collections::vec_deque::{VecDeque};
 use std::fs::File;
 use std::fs;
 use std::io;
@@ -10,13 +15,10 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 use std;
-use tokio_core::net;
 use tokio_core::net::{TcpStream};
-use url::form_urlencoded;
+use tokio_core::net;
 use tokio_core::reactor;
-use futures::future::Future;
-use futures::future;
-use bytes::{BytesMut,BufMut};
+use url::form_urlencoded;
 
 use error::{Result};
 
@@ -253,5 +255,41 @@ impl BytesMutEnhanced for BytesMut {
         if x < capacity {
             self.reserve(capacity - x);
         }
+    }
+}
+
+pub struct VecDequeStream<T, E> {
+    inner: VecDeque<T>,
+    phantom: std::marker::PhantomData<E>
+}
+
+impl<T, E> VecDequeStream<T, E> {
+    pub fn new(inner: VecDeque<T>) -> Self {
+        Self { inner, phantom: std::marker::PhantomData }
+    }
+}
+
+impl<T, E> Stream for VecDequeStream<T, E> {
+    type Item = T;
+    type Error = E;
+
+    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+        use futures::Async;
+        Ok(Async::Ready(self.inner.pop_front()))
+    }
+}
+
+#[cfg(test)]
+mod tests2 {
+    use util::*;
+
+    #[test]
+    fn test_vec_deque_stream() {
+        let mut vec = VecDeque::<i64>::new();
+        vec.push_back(1);
+        vec.push_back(2);
+        vec.push_back(3);
+        let stream = VecDequeStream::new(vec);
+        assert_eq!(vec![1,2,3], stream.collect().wait().unwrap());
     }
 }
