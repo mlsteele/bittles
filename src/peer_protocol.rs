@@ -52,11 +52,11 @@ const HANDSHAKE_PROTOCOL: &'static str = "BitTorrent protocol";
 pub struct BitTorrentPeerCodec;
 
 impl BitTorrentPeerCodec {
-    // Sense whether there's a frame.
+    // Sense whether there's a complete frame.
     // Does not take any bytes from src.
-    // Returns Some(Message length).
-    // Message length includes does not include its own 4 bytes.
-    // For example, for an `Interested`, message length would be 1.
+    // Returns Some(message_length) is there is a complete frame.
+    // message_length does not include its own 4 bytes.
+    // For example, for an `Interested`, message_length would be 1.
     // Returns None if not enough data to read a frame.
     fn sense_frame(src: &BytesMut) -> Option<u32> {
         const NUM_LEN: usize = 4;
@@ -64,7 +64,12 @@ impl BitTorrentPeerCodec {
             // Wait for the frame size
             return None
         }
-        Some(BigEndian::read_u32(src.as_ref()))
+        let message_length = BigEndian::read_u32(src.as_ref());
+        if src.len() + NUM_LEN < message_length as usize {
+            // Wait for complete frame
+            return None
+        }
+        Some(message_length)
     }
 
     // Decode a single message.
@@ -177,6 +182,8 @@ impl tokio_io::codec::Decoder for BitTorrentPeerCodec {
 
         // Drop the bytes representing message_length
         let _ = src.split_to(NUM_LEN);
+
+        assert!(src.len() >= message_length as usize, "decoder bug: buf_len:{} < msg_len:{}", src.len(), message_length);
 
         // Take the message out of the source.
         // Also convert it to a Buf.

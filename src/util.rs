@@ -265,7 +265,7 @@ pub struct VecDequeStream<T, E> {
 
 impl<T, E> VecDequeStream<T, E> {
     pub fn new(inner: VecDeque<T>) -> Self {
-        Self { inner, phantom: std::marker::PhantomData }
+        Self { inner: inner, phantom: std::marker::PhantomData }
     }
 }
 
