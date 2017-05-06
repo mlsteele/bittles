@@ -77,7 +77,7 @@ impl BitTorrentPeerCodec {
         let message_length = src.remaining();
 
         if message_length == 0 {
-            return Err(Error::new_peer(&format!("message length 0")));
+            return Ok(KeepAlive);
         }
         let message_id = src.get_u8();
 

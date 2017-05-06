@@ -18,22 +18,7 @@ use metainfo::{MetaInfo,InfoHash};
 use peer_protocol::{PeerID,Message,BitTorrentPeerCodec};
 use peer_protocol;
 use tracker::{TrackerClient};
-use util::{tcp_connect2};
-
-type BxFuture<T,E> = Box<Future<Item=T, Error=E>>;
-
-trait FutureEnhanced<T,E> {
-    fn bxed(self) -> BxFuture<T,E>
-        where Self: Sized + 'static;
-}
-
-impl<T,E,X> FutureEnhanced<T,E> for X
-    where X: future::Future<Item=T, Error=E> + 'static
-{
-    fn bxed(self) -> BxFuture<T,E> {
-        return Box::new(self)
-    }
-}
+use util::{tcp_connect2,BxFuture,FutureEnhanced};
 
 type PeerStream = Framed<TcpStream, BitTorrentPeerCodec>;
 
@@ -230,28 +215,6 @@ fn main_loop(stream: PeerStream, dstate: DownloaderState) -> BxFuture<(), Error>
     let lstate: LoopState = (stream, dstate);
     future::loop_fn(lstate, loop_step).bxed()
 }
-
-// /// One step of the main loop.
-// fn loop_step(lstate: LoopState) -> BxFuture<future::Loop<(), LoopState>, Error> {
-//     use futures::future::Loop::{Break,Continue};
-//     let (stream, mut dstate) = lstate;
-//     stream
-//         .into_future()
-//         .map_err(|(err, _stream)| err)
-//         .and_then(move |(omsg, stream)| { match omsg {
-//             None => future::ok(Break(())),
-//             Some(msg) => {
-//                 match single_step(msg, &mut dstate) {
-//                     Err(err) => future::err(err),
-//                     Ok(x) => match x {
-//                         Some(out) => future::ok(Break(())),
-//                         None => future::ok(Continue((stream, dstate)))
-//                     }
-//                 }
-//             }
-//         }})
-//         .bxed()
-// }
 
 /// One step of the main loop.
 fn loop_step(lstate: LoopState) -> BxFuture<future::Loop<(), LoopState>, Error> {

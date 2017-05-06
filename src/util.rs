@@ -225,7 +225,25 @@ pub fn write_atomic<P1, P2, F>(final_path: P1, temp_path: P2, write: F) -> Resul
     Ok(())
 }
 
+/// A convenient alias like BoxFuture but _without_ Send.
+pub type BxFuture<T,E> = Box<Future<Item=T, Error=E>>;
+
+pub trait FutureEnhanced<T,E> {
+    fn bxed(self) -> BxFuture<T,E>
+        where Self: Sized + 'static;
+}
+
+impl<T,E,X> FutureEnhanced<T,E> for X
+    where X: future::Future<Item=T, Error=E> + 'static
+{
+    fn bxed(self) -> BxFuture<T,E> {
+        return Box::new(self)
+    }
+}
+
 pub trait BytesMutEnhanced {
+    /// Make sure the buffer has at least so much capacity.
+    /// Convenience around `remaining_mut` and `reserve`.
     fn ensure(&mut self, capacity: usize);
 }
 
