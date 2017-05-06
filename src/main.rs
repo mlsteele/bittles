@@ -38,7 +38,7 @@ use std::io::prelude::*;
 use std::path::Path;
 use tokio_core::reactor;
 
-use peer_protocol::{PeerID};
+use peer_protocol::PeerID;
 use metainfo::*;
 use manifest::*;
 use util::{replace_query_parameters, QueryParameters};
@@ -55,12 +55,12 @@ struct Args {
 fn main() {
     match inner() {
         Ok(_) => {}
-        Err(e) => println!("ERROR: {}", e)
+        Err(e) => println!("ERROR: {}", e),
     }
 }
 
 #[allow(dead_code)]
-fn inner2() -> Result<(),Box<Error>> {
+fn inner2() -> Result<(), Box<Error>> {
     let x: [u8; 20] = [18, 52, 86, 120, 154, 188, 222, 241, 35, 69, 103, 137, 171, 205, 239, 18, 52, 86, 120, 154];
     let y = format!("{:x}", x.iter().format(""));
     println!("hex: {}", y);
@@ -90,9 +90,7 @@ fn inner2() -> Result<(),Box<Error>> {
 
     {
         let mut url = hyper::Url::parse("http://example.com/announce")?;
-        replace_query_parameters(&mut url,
-                                 &[("info_hash", x)]
-        );
+        replace_query_parameters(&mut url, &[("info_hash", x)]);
         println!("url uuz: {:?}", url);
     }
 
@@ -108,7 +106,7 @@ fn inner2() -> Result<(),Box<Error>> {
 }
 
 #[allow(dead_code)]
-fn inner3() -> Result<(),Box<Error>> {
+fn inner3() -> Result<(), Box<Error>> {
     // ubuntu info hash
     let x: [u8; 20] = [52, 147, 6, 116, 239, 59, 185, 49, 127, 181, 242, 99, 204, 168, 48, 245, 38, 133, 35, 91];
     let y = format!("{:x}", x.iter().format(""));
@@ -134,7 +132,7 @@ fn inner3() -> Result<(),Box<Error>> {
     Ok(())
 }
 
-fn inner() -> Result<(),Box<Error>> {
+fn inner() -> Result<(), Box<Error>> {
     let args: Args = Docopt::new(USAGE)
         .and_then(|d| d.decode())
         .unwrap_or_else(|e| e.exit());

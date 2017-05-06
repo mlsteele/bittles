@@ -1,8 +1,8 @@
-use error::{Error,Result};
-use metainfo::{MetaInfo,PieceHash};
+use error::{Error, Result};
+use metainfo::{MetaInfo, PieceHash};
 use ring::digest;
 use std::fs;
-use std::io::{Seek,SeekFrom,Write};
+use std::io::{Seek, SeekFrom, Write};
 use std::path::Path;
 use util::ReadWire;
 
@@ -14,8 +14,7 @@ pub struct DataStore {
 
 impl DataStore {
     pub fn create_or_open<P: AsRef<Path>>(metainfo: &MetaInfo, path: P) -> Result<Self> {
-        let f = fs::OpenOptions::new()
-            .read(true)
+        let f = fs::OpenOptions::new().read(true)
             .write(true)
             .create(true)
             .truncate(false)
@@ -57,8 +56,7 @@ impl DataStore {
     fn check_piece(&self, piece: usize) -> Result<()> {
         match piece < self.num_pieces {
             true => Ok(()),
-            false => Err(Error::new_str(
-                &format!("piece out of bounds !({} < {})", piece, self.num_pieces))),
+            false => Err(Error::new_str(&format!("piece out of bounds !({} < {})", piece, self.num_pieces))),
         }
     }
 

@@ -1,13 +1,13 @@
 use bip_bencode::{BencodeRef, BDecodeOpt, BRefAccess, BDictAccess};
-use byteorder::{ByteOrder,BigEndian};
-use error::{Error,Result};
+use byteorder::{ByteOrder, BigEndian};
+use error::{Error, Result};
 use hyper::Url;
 use hyper;
 use metainfo::*;
 use std::io::Read;
 use std::net;
 use std::time::Duration;
-use util::{QueryParameters};
+use util::QueryParameters;
 use peer_protocol::PeerID;
 
 // Client to talk to a tracker
@@ -78,7 +78,7 @@ impl TrackerClient {
         qps.push_num("uploaded", req.uploaded);
         qps.push_num("downloaded", req.downloaded);
         qps.push_num("left", req.left);
-        qps.push("compact", if req.compact {"1"} else {"0"});
+        qps.push("compact", if req.compact { "1" } else { "0" });
         if req.no_peer_id {
             qps.push("no_peer_id", "1");
         }
@@ -101,7 +101,8 @@ impl TrackerClient {
         let mut url = self.url.clone();
         qps.apply(&mut url);
 
-        let http_req = self.client.get(url)
+        let http_req = self.client
+            .get(url)
             .header(hyper::header::UserAgent(self.user_agent.clone()));
         Ok(http_req)
     }
@@ -115,17 +116,17 @@ impl TrackerClient {
         let b = BencodeRef::decode(buf.as_slice(), BDecodeOpt::default())?;
         let bd = b.dict().ok_or(Error::new_str("response bencoding not a dict"))?;
         Ok(TrackerResponse {
-            failure_reason:  lookup_str(bd, "failure reason".as_bytes())?,
+            failure_reason: lookup_str(bd, "failure reason".as_bytes())?,
             warning_message: lookup_str(bd, "warning message".as_bytes())?,
-            interval:        lookup_i64(bd, "interval".as_bytes())?
-                                .ok_or(Error::new_str("missing 'interval'"))?,
-            min_interval:    lookup_i64(bd, "min interval".as_bytes())?,
-            tracker_id:      lookup_str(bd, "tracker id".as_bytes())?,
-            complete:        lookup_i64(bd, "complete".as_bytes())?
-                                .ok_or(Error::new_str("missing 'complete'"))?,
-            incomplete:      lookup_i64(bd, "incomplete".as_bytes())?
-                                .ok_or(Error::new_str("missing 'incomplete'"))?,
-            peers:           self.parse_peers(bd)?, // TODO
+            interval: lookup_i64(bd, "interval".as_bytes())?
+                .ok_or(Error::new_str("missing 'interval'"))?,
+            min_interval: lookup_i64(bd, "min interval".as_bytes())?,
+            tracker_id: lookup_str(bd, "tracker id".as_bytes())?,
+            complete: lookup_i64(bd, "complete".as_bytes())?
+                .ok_or(Error::new_str("missing 'complete'"))?,
+            incomplete: lookup_i64(bd, "incomplete".as_bytes())?
+                .ok_or(Error::new_str("missing 'incomplete'"))?,
+            peers: self.parse_peers(bd)?, // TODO
         })
     }
 
@@ -149,15 +150,17 @@ impl TrackerClient {
             if peers.len() % 6 != 0 {
                 return Err(Error::new_str("Peers 'byte' representation not 6*n bytes"));
             }
-            return Ok(peers.chunks(6).map(|chunk| {
-                let (bytes_ip, bytes_port) = chunk.split_at(4);
-                let port = BigEndian::read_u16(bytes_port);
-                let ip = net::Ipv4Addr::new(bytes_ip[0], bytes_ip[1], bytes_ip[2], bytes_ip[3]);
-                Peer {
-                    peer_id: None,
-                    address: net::SocketAddr::V4(net::SocketAddrV4::new(ip, port)),
-                }
-            }).collect())
+            return Ok(peers.chunks(6)
+                .map(|chunk| {
+                    let (bytes_ip, bytes_port) = chunk.split_at(4);
+                    let port = BigEndian::read_u16(bytes_port);
+                    let ip = net::Ipv4Addr::new(bytes_ip[0], bytes_ip[1], bytes_ip[2], bytes_ip[3]);
+                    Peer {
+                        peer_id: None,
+                        address: net::SocketAddr::V4(net::SocketAddrV4::new(ip, port)),
+                    }
+                })
+                .collect());
         }
         Err(Error::new_str(&format!("wrong type for 'peers': {:?}", peers)))
     }
@@ -165,20 +168,24 @@ impl TrackerClient {
 
 fn lookup_str<'a>(dict: &'a BDictAccess<BencodeRef>, key: &'a [u8]) -> Result<Option<String>> {
     match dict.lookup(key) {
-        Some(x) => match x.str() {
-            Some(x) => Ok(Some(x.to_owned())),
-            None => Err(Error::new_str(&format!("'{:?}' exists but is not a utf8 string", key))),
-        },
+        Some(x) => {
+            match x.str() {
+                Some(x) => Ok(Some(x.to_owned())),
+                None => Err(Error::new_str(&format!("'{:?}' exists but is not a utf8 string", key))),
+            }
+        }
         None => Ok(None),
     }
 }
 
 fn lookup_i64<'a>(dict: &'a BDictAccess<BencodeRef>, key: &'a [u8]) -> Result<Option<i64>> {
     match dict.lookup(key) {
-        Some(x) => match x.int() {
-            Some(x) => Ok(Some(x)),
-            None => Err(Error::new_str(&format!("'{:?}' exists but is not an int", key))),
-        },
+        Some(x) => {
+            match x.int() {
+                Some(x) => Ok(Some(x)),
+                None => Err(Error::new_str(&format!("'{:?}' exists but is not an int", key))),
+            }
+        }
         None => Ok(None),
     }
 }
@@ -227,7 +234,9 @@ pub struct TrackerResponse {
     pub warning_message: Option<String>, // (new, optional) Similar to failure reason, but the response still gets processed normally. The warning message is shown just like an error.
     pub interval: i64, // Interval in seconds that the client should wait between sending regular requests to the tracker
     pub min_interval: Option<i64>, // (optional) Minimum announce interval. If present clients must not reannounce more frequently than this.
-    pub tracker_id: Option<String>, // A string that the client should send back on its next announcements. If absent and a previous announce sent a tracker id, do not discard the old value; keep using it.
+    /// A string that the client should send back on its next announcements.
+    /// If absent and a previous announce sent a tracker id, do not discard the old value; keep using it.
+    pub tracker_id: Option<String>,
     pub complete: i64, // Number of peers with the entire file (seeders)
     pub incomplete: i64, // Number of non-seeder peers (leechers)
     pub peers: Vec<Peer>,

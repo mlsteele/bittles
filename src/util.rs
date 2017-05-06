@@ -1,10 +1,10 @@
-use byteorder::{ByteOrder,BigEndian};
-use bytes::{BytesMut,BufMut};
+use byteorder::{ByteOrder, BigEndian};
+use bytes::{BytesMut, BufMut};
 use futures::future::Future;
 use futures::future;
-use futures::{Stream,Sink,Poll};
+use futures::{Stream, Sink, Poll};
 use hyper::Url;
-use std::collections::vec_deque::{VecDeque};
+use std::collections::vec_deque::VecDeque;
 use std::fs::File;
 use std::fs;
 use std::io;
@@ -15,12 +15,12 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 use std;
-use tokio_core::net::{TcpStream};
+use tokio_core::net::TcpStream;
 use tokio_core::net;
 use tokio_core::reactor;
 use url::form_urlencoded;
 
-use error::{Result};
+use error::Result;
 
 fn encode(x: &[u8]) -> String {
     // percent_encode(x, QUERY_ENCODE_SET).collect::<String>()
@@ -34,20 +34,21 @@ pub struct QueryParameters {
 
 impl QueryParameters {
     pub fn new() -> QueryParameters {
-        QueryParameters{
-            qps: Vec::new(),
-        }
+        QueryParameters { qps: Vec::new() }
     }
 
     pub fn push<K, V>(&mut self, k: K, v: V)
-        where K: AsRef<[u8]>, V: AsRef<[u8]> {
+        where K: AsRef<[u8]>,
+              V: AsRef<[u8]>
+    {
         let k_enc = encode(k.as_ref());
         let v_enc = encode(v.as_ref());
         self.qps.push((k_enc, v_enc));
     }
 
     pub fn push_num<K>(&mut self, k: K, v: i64)
-        where K: AsRef<[u8]> {
+        where K: AsRef<[u8]>
+    {
         let k_enc = encode(k.as_ref());
         let v_str = format!("{}", v);
         let v_enc = encode(v_str.as_bytes());
@@ -78,7 +79,8 @@ impl QueryParameters {
 // So here we are, with a query parameter method that takes &[u8].
 #[allow(dead_code)]
 pub fn replace_query_parameters<K, V>(url: &mut Url, query_parameters: &[(K, V)])
-    where K: AsRef<[u8]>, V: AsRef<[u8]>
+    where K: AsRef<[u8]>,
+          V: AsRef<[u8]>
 {
     let mut s = String::new();
     let mut first = true;
@@ -137,9 +139,7 @@ mod tests {
 
     #[test]
     fn test_read_extensions() {
-        let sample = vec![0, 1, 0, 1,
-                          9, 9,
-                          12];
+        let sample = vec![0, 1, 0, 1, 9, 9, 12];
         let mut reader = sample.as_slice();
         assert_eq!(reader.read_u32().unwrap(), 65537);
         assert_eq!(reader.read_n(2).unwrap(), vec![9, 9]);
@@ -171,7 +171,9 @@ pub fn byte_to_bits(b: u8) -> [bool; 8] {
 pub fn bits_to_byte(b: [bool; 8]) -> u8 {
     let mut z = 0;
     for i in 0..8 {
-        if b[7-i] { z += (2 as u8).pow(i as u32); }
+        if b[7 - i] {
+            z += (2 as u8).pow(i as u32);
+        }
     }
     z
 }
@@ -190,26 +192,24 @@ pub fn tcp_connect<T>(addr: T, timeout: Duration) -> io::Result<std::net::TcpStr
 {
     let (tx1, rx) = mpsc::sync_channel(0);
     let tx2 = tx1.clone();
-    thread::spawn(move|| {
+    thread::spawn(move || {
         let stream = std::net::TcpStream::connect(addr);
         let _ = tx1.send(stream);
     });
-    thread::spawn(move|| {
+    thread::spawn(move || {
         thread::sleep(timeout);
         let _ = tx2.send(Err(io::Error::new(io::ErrorKind::TimedOut, "tcp connect timed out")));
     });
     rx.recv().unwrap()
 }
 
-pub fn tcp_connect2(addr: &SocketAddr, timeout: Duration, handle: &reactor::Handle)
-                    -> Box<Future<Item=Option<TcpStream>, Error=io::Error>>
-{
+pub fn tcp_connect2(addr: &SocketAddr, timeout: Duration, handle: &reactor::Handle) -> Box<Future<Item = Option<TcpStream>, Error = io::Error>> {
     let timeout = reactor::Timeout::new(timeout, handle).expect("tcp_connect2: could not create timeout");
-    let timeout = timeout.map(|_|None::<TcpStream>);
-    let stream = TcpStream::connect(addr, handle).map(|x|Some(x));
+    let timeout = timeout.map(|_| None::<TcpStream>);
+    let stream = TcpStream::connect(addr, handle).map(|x| Some(x));
     timeout.select(stream)
-        .map(|(v,_)| v)
-        .map_err(|(e,_)| e)
+        .map(|(v, _)| v)
+        .map_err(|(e, _)| e)
         .boxed()
 }
 
@@ -228,18 +228,17 @@ pub fn write_atomic<P1, P2, F>(final_path: P1, temp_path: P2, write: F) -> Resul
 }
 
 /// A convenient alias like BoxFuture but _without_ Send.
-pub type BxFuture<T,E> = Box<Future<Item=T, Error=E>>;
+pub type BxFuture<T, E> = Box<Future<Item = T, Error = E>>;
 
-pub trait FutureEnhanced<T,E> {
-    fn bxed(self) -> BxFuture<T,E>
-        where Self: Sized + 'static;
+pub trait FutureEnhanced<T, E> {
+    fn bxed(self) -> BxFuture<T, E> where Self: Sized + 'static;
 }
 
-impl<T,E,X> FutureEnhanced<T,E> for X
-    where X: future::Future<Item=T, Error=E> + 'static
+impl<T, E, X> FutureEnhanced<T, E> for X
+    where X: future::Future<Item = T, Error = E> + 'static
 {
-    fn bxed(self) -> BxFuture<T,E> {
-        return Box::new(self)
+    fn bxed(self) -> BxFuture<T, E> {
+        return Box::new(self);
     }
 }
 
@@ -260,12 +259,15 @@ impl BytesMutEnhanced for BytesMut {
 
 pub struct VecDequeStream<T, E> {
     inner: VecDeque<T>,
-    phantom: std::marker::PhantomData<E>
+    phantom: std::marker::PhantomData<E>,
 }
 
 impl<T, E> VecDequeStream<T, E> {
     pub fn new(inner: VecDeque<T>) -> Self {
-        Self { inner: inner, phantom: std::marker::PhantomData }
+        Self {
+            inner: inner,
+            phantom: std::marker::PhantomData,
+        }
     }
 }
 

@@ -39,12 +39,10 @@ impl Error {
     }
 
     pub fn annotate<E>(err: E, description: &str) -> Error
-        where E: Into<Error>,
+        where E: Into<Error>
     {
         let err2: Error = err.into();
-        let description2: String = format!("{}: {}",
-                                           description,
-                                           std::error::Error::description(&err2));
+        let description2: String = format!("{}: {}", description, std::error::Error::description(&err2));
         Error::Annotated(description2, Box::new(err2))
     }
 

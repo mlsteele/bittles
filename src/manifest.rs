@@ -1,10 +1,10 @@
-use error::{Error,Result};
+use error::{Error, Result};
 use std::cmp;
 use std::fmt;
 use std;
 use fillable::*;
 use metainfo::*;
-use std::path::{Path,PathBuf};
+use std::path::{Path, PathBuf};
 use util::write_atomic;
 use std::fs;
 use serde_cbor;
@@ -28,8 +28,8 @@ impl fmt::Display for Manifest {
         writeln!(f, "Manifest {{")?;
         writeln!(f, "    info_hash: {:?}", self.info_hash)?;
         writeln!(f, "    piece_length: {:?} bytes", self.piece_length)?;
-        //writeln!(f, "    num_pieces: {:?} pieces", self.num_pieces)?;
-        //writeln!(f, "    total size: {} bytes", self.total_size())?;
+        // writeln!(f, "    num_pieces: {:?} pieces", self.num_pieces)?;
+        // writeln!(f, "    total size: {} bytes", self.total_size())?;
         writeln!(f, "}}")?;
         Ok(())
     }
@@ -64,34 +64,34 @@ impl Manifest {
     /// Can span multiple pieces.
     /// Returns an error if it dives off the end of the file.
     pub fn add_block(&mut self, piece: usize, offset: u32, length: u32) -> Result<()> {
-        //println!("add_block({}, {}, {}) to {:?}", piece, offset, length, self);
+        // println!("add_block({}, {}, {}) to {:?}", piece, offset, length, self);
 
         // find the last affected piece
         let last_byte: u64 = (piece as u64 * self.piece_length as u64) + (offset + length) as u64;
         let last_piece: usize = if last_byte % (self.piece_length as u64) == 0 {
-                (last_byte / (self.piece_length as u64) - 1) as usize
-            } else {
-                (last_byte / self.piece_length as u64) as usize
-            };
+            (last_byte / (self.piece_length as u64) - 1) as usize
+        } else {
+            (last_byte / self.piece_length as u64) as usize
+        };
         self.check_piece(last_piece)?;
-        //println!("\tThe last affected piece is {}", last_piece);
+        // println!("\tThe last affected piece is {}", last_piece);
 
         // Fill the first piece
         {
-            //println!("\tWill add interval from {} to {}", offset, )
+            // println!("\tWill add interval from {} to {}", offset, )
             self.present[piece].add(offset, cmp::min(offset + length, self.piece_length))?;
         }
         // Fill the in-between pieces
-        for i in piece+1..last_piece {
+        for i in piece + 1..last_piece {
             self.present[i].fill();
         }
         // Fill the last piece
         if piece != last_piece {
             let upto = if (offset + length) % self.piece_length == 0 {
-                    self.piece_length
-                } else {
-                    (offset + length) % self.piece_length
-                };
+                self.piece_length
+            } else {
+                (offset + length) % self.piece_length
+            };
             self.present[last_piece].add(0, upto)?;
         }
         Ok(())
@@ -130,7 +130,7 @@ impl Manifest {
                             piece: i as u32,
                             offset: x,
                             length: cmp::min(left, max_length),
-                        })
+                        });
                     }
                 }
             }
@@ -143,8 +143,7 @@ impl Manifest {
         #[allow(unused_comparisons)]
         match 0 <= piece && piece < self.num_pieces {
             true => Ok(()),
-            false => Err(Error::new_str(
-                &format!("piece out of bounds !({} < {})", piece, self.num_pieces))),
+            false => Err(Error::new_str(&format!("piece out of bounds !({} < {})", piece, self.num_pieces))),
         }
     }
 }
@@ -159,16 +158,19 @@ mod tests {
         // Reference: add_block(0, 4, 11) with piece_length = 6
         // 0             1             2
         // - - - - * * | * * * * * * | * * * - - -
-        let ph = PieceHash{hash: [0; PIECE_HASH_SIZE]};
+        let ph = PieceHash { hash: [0; PIECE_HASH_SIZE] };
         let info = MetaInfo {
             announce: std::string::String::new(),
-            info_hash: InfoHash{hash: [0; INFO_HASH_SIZE]},
+            info_hash: InfoHash { hash: [0; INFO_HASH_SIZE] },
             piece_length: 6,
             piece_hashes: vec![ph.clone(), ph.clone(), ph.clone()],
-            file_info: FileInfo::Single { name: "".to_owned(), length: 0 },
+            file_info: FileInfo::Single {
+                name: "".to_owned(),
+                length: 0,
+            },
         };
         let mut manifest = Manifest::new(info);
-        let r=manifest.add_block(0, 4, 11); // add into the middle
+        let r = manifest.add_block(0, 4, 11); // add into the middle
         println!("{:?}", r);
         assert!(r.is_ok()); // add into the middle
         assert!(!manifest.is_full(0).unwrap());
@@ -204,7 +206,7 @@ impl ManifestWithFile {
             Ok(x) => {
                 println!("manifest loaded from file");
                 Ok(x)
-            },
+            }
             Err(err) => {
                 println!("manifest created anew because: {:?}", err);
                 Ok(Self::new(info, path))
@@ -235,9 +237,11 @@ impl ManifestWithFile {
     pub fn store(&self) -> Result<()> {
         println!("saving manifest: {:?}", self.path);
         let temp_path = {
-            let mut fname: String = self.path.file_name()
-                .and_then(|x|x.to_str())
-                .ok_or(Error::new_str("missing file name"))?.to_owned();
+            let mut fname: String = self.path
+                .file_name()
+                .and_then(|x| x.to_str())
+                .ok_or(Error::new_str("missing file name"))?
+                .to_owned();
             fname.push_str(".swp");
             self.path.with_file_name(fname)
         };
@@ -247,7 +251,6 @@ impl ManifestWithFile {
         })?;
         Ok(())
     }
-
 }
 
 pub struct BlockRequest {

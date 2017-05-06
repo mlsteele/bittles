@@ -1,25 +1,25 @@
-use futures::future::{Future,FutureResult};
+use futures::future::{Future, FutureResult};
 use futures::future;
-use futures::{Stream,Sink};
-use std::collections::vec_deque::{VecDeque};
+use futures::{Stream, Sink};
+use std::collections::vec_deque::VecDeque;
 use std::default::Default;
-use std::net::{SocketAddr};
+use std::net::SocketAddr;
 use std::path::Path;
 use std::time::Duration;
-use tokio_core::net::{TcpStream};
+use tokio_core::net::TcpStream;
 use tokio_core::reactor;
-use tokio_io::codec::{Framed};
-use tokio_io::{AsyncRead};
+use tokio_io::codec::Framed;
+use tokio_io::AsyncRead;
 
 use datastore::DataStore;
-use error::{Error,Result};
+use error::{Error, Result};
 use fillable::*;
-use manifest::{ManifestWithFile};
-use metainfo::{MetaInfo,InfoHash};
-use peer_protocol::{PeerID,Message,BitTorrentPeerCodec};
+use manifest::ManifestWithFile;
+use metainfo::{MetaInfo, InfoHash};
+use peer_protocol::{PeerID, Message, BitTorrentPeerCodec};
 use peer_protocol;
-use tracker::{TrackerClient};
-use util::{tcp_connect2,BxFuture,FutureEnhanced,VecDequeStream};
+use tracker::TrackerClient;
+use util::{tcp_connect2, BxFuture, FutureEnhanced, VecDequeStream};
 
 type PeerStream = Framed<TcpStream, BitTorrentPeerCodec>;
 
@@ -33,13 +33,7 @@ struct DownloaderState {
 
 type LoopState = (PeerStream, DownloaderState);
 
-pub fn start<P: AsRef<Path>>(
-    info: MetaInfo,
-    peer_id: PeerID,
-    store_path: P,
-    manifest_path: P)
-    -> Result<()>
-{
+pub fn start<P: AsRef<Path>>(info: MetaInfo, peer_id: PeerID, store_path: P, manifest_path: P) -> Result<()> {
     let mut core = reactor::Core::new()?;
     let handle = core.handle();
 
@@ -70,30 +64,22 @@ pub fn start<P: AsRef<Path>>(
         blah_state: BlahState::default(),
     };
 
-    let future_root = connect_peer(peer.address, info_hash, peer_id, &handle)
-        .and_then(|(stream, remote_peer_id)| {
-            let dstate = dstate;
-
-            main_loop(stream, dstate)
-        });
+    let future_root = connect_peer(peer.address, info_hash, peer_id, &handle).and_then(|(stream, remote_peer_id)| {
+        let dstate = dstate;
+        main_loop(stream, dstate)
+    });
     core.run(future_root)?;
     Ok(())
 }
 
 /// Connect to a remote peer
-fn connect_peer(
-    addr: SocketAddr,
-    info_hash: InfoHash,
-    peer_id: PeerID,
-    handle: &reactor::Handle)
-    -> BxFuture<(PeerStream, PeerID), Error>
-{
+fn connect_peer(addr: SocketAddr, info_hash: InfoHash, peer_id: PeerID, handle: &reactor::Handle) -> BxFuture<(PeerStream, PeerID), Error> {
     let info_hash2 = info_hash.clone();
 
     println!("connecting to {} ...", addr);
     tcp_connect2(&addr, Duration::from_millis(3000), &handle)
         .map_err(|e| Error::annotate(e, "peer connection failed"))
-        .and_then(|stream| -> FutureResult<TcpStream,Error> {
+        .and_then(|stream| -> FutureResult<TcpStream, Error> {
             match stream {
                 Some(stream) => future::ok(stream),
                 None => future::err(Error::new_str(&"peer connection timed out")),
@@ -103,23 +89,17 @@ fn connect_peer(
             println!("connected");
             peer_protocol::handshake_send_async(stream, info_hash.clone(), peer_id.clone())
         })
-        .and_then(|stream| {
-            peer_protocol::handshake_read_1_async(stream)
-        })
+        .and_then(|stream| peer_protocol::handshake_read_1_async(stream))
         .and_then(move |(stream, remote_info_hash)| {
             println!("remote info hash: {:?}", remote_info_hash);
             if remote_info_hash != info_hash2 {
                 return Err(Error::new_str(&format!("peer info hash mismatch peer:{:?} me:{:?}",
-                    remote_info_hash, info_hash2)));
+                                                   remote_info_hash,
+                                                   info_hash2)));
             }
             Ok(stream)
         })
-        .and_then(|stream| {
-            peer_protocol::handshake_read_2_async(stream)
-                .map(move |(stream, remote_peer_id)| {
-                    (stream, remote_peer_id)
-                })
-        })
+        .and_then(|stream| peer_protocol::handshake_read_2_async(stream).map(move |(stream, remote_peer_id)| (stream, remote_peer_id)))
         .and_then(|(stream, remote_peer_id)| {
             println!("remote peer id: {:?}", remote_peer_id);
 
@@ -142,46 +122,55 @@ fn main_loop(stream: PeerStream, dstate: DownloaderState) -> BxFuture<(), Error>
 
 /// One step of the main loop.
 fn loop_step(lstate: LoopState) -> BxFuture<future::Loop<String, LoopState>, Error> {
-    use futures::future::Loop::{Break,Continue};
+    use futures::future::Loop::{Break, Continue};
     let (stream, mut dstate) = lstate;
     // Note: There are many `bxed` calls in here because match arms must return the same type.
     // And the long long types produced by future chaining are not equivalent.
     // So the boxing turns them into trait objects implementing the same specified Future.
-    stream
-        .into_future()
+    stream.into_future()
         .map_err(|(err, _stream)| err)
-        .and_then(move |(omsg, stream)| { match omsg {
-            None => future::ok(Break("event stream ended".to_owned())).bxed(),
-            Some(msg) => {
-                match single_step(msg, &mut dstate) {
-                    Err(err) => future::err(err).bxed(),
-                    Ok(outs) => {
-                        let n_outs = outs.len();
-                        stream.send_all(VecDequeStream::<Message, Error>::new(outs)).map(move |(stream, _)| {
-                            println!("sent {}", n_outs);
-                            Continue((stream, dstate))
-                        })
-                    }.bxed()
+        .and_then(move |(omsg, stream)| {
+            match omsg {
+                None => future::ok(Break("event stream ended".to_owned())).bxed(),
+                Some(msg) => {
+                    match single_step(msg, &mut dstate) {
+                        Err(err) => future::err(err).bxed(),
+                        Ok(outs) => {
+                            {
+                                    let n_outs = outs.len();
+                                    stream.send_all(VecDequeStream::<Message, Error>::new(outs)).map(move |(stream, _)| {
+                                        println!("sent {}", n_outs);
+                                        Continue((stream, dstate))
+                                    })
+                                }
+                                .bxed()
+                        }
+                    }
                 }
             }
-        }}).bxed()
+        })
+        .bxed()
 }
 
 /// One synchronous step.
 /// Returns a message to send.
 fn single_step(msg: Message, dstate: &mut DownloaderState) -> Result<VecDeque<Message>> {
     let mut outs = VecDeque::new();
-    println!("recv message {}: {}", dstate.blah_state.nreceived, msg.summarize());
+    println!("recv message {}: {}",
+             dstate.blah_state.nreceived,
+             msg.summarize());
     dstate.blah_state.nreceived += 1;
     match msg {
-        Message::Choke =>         dstate.peer_state.peer_choking = true,
-        Message::Unchoke =>       dstate.peer_state.peer_choking = false,
-        Message::Interested =>    dstate.peer_state.peer_interested = true,
+        Message::Choke => dstate.peer_state.peer_choking = true,
+        Message::Unchoke => dstate.peer_state.peer_choking = false,
+        Message::Interested => dstate.peer_state.peer_interested = true,
         Message::NotInterested => dstate.peer_state.peer_interested = false,
         Message::Bitfield { bits } => {
             if bits.len() < dstate.info.num_pieces() {
-                println!("{}", Error::new_str(&format!("bitfield has less bits {} than pieces {}",
-                                                bits.len(), dstate.info.num_pieces())));
+                println!("{}",
+                         Error::new_str(&format!("bitfield has less bits {} than pieces {}",
+                                                 bits.len(),
+                                                 dstate.info.num_pieces())));
             }
             let mut i_start = 0;
             let mut in_interval = false;
@@ -197,37 +186,35 @@ fn single_step(msg: Message, dstate: &mut DownloaderState) -> Result<VecDeque<Me
             if in_interval {
                 dstate.peer_state.has.add(i_start as u32, dstate.info.num_pieces() as u32)?;
             }
-        },
+        }
         Message::Have { piece } => {
-            dstate.peer_state.has.add(piece, piece+1)?;
-        },
+            dstate.peer_state.has.add(piece, piece + 1)?;
+        }
         Message::Piece { piece, offset, block } => {
             dstate.datastore.write_block(piece as usize, offset, &block)?;
             dstate.manifest.manifest.add_block(piece as usize, offset, block.len() as u32)?;
             dstate.manifest.store()?;
             dstate.blah_state.waiting = false;
-        },
-        _ => {},
+        }
+        _ => {}
     }
     if dstate.blah_state.nreceived >= 1 && dstate.peer_state.am_choking {
-        let out = Message::Unchoke{};
+        let out = Message::Unchoke {};
         println!("sending message: {:?}", out);
         dstate.peer_state.am_choking = false;
         outs.push_back(out);
     }
     if dstate.blah_state.nreceived >= 1 && !dstate.peer_state.am_interested {
-        let out = Message::Interested{};
+        let out = Message::Interested {};
         println!("sending message: {:?}", out);
         dstate.peer_state.am_interested = true;
         outs.push_back(out);
     }
     if !dstate.blah_state.waiting && !dstate.peer_state.peer_choking && dstate.peer_state.am_interested {
         match dstate.manifest.manifest.next_desired_block() {
-            None => {
-                return Err(Error::todo())
-            },
+            None => return Err(Error::todo()),
             Some(desire) => {
-                let out = Message::Request{
+                let out = Message::Request {
                     piece: desire.piece,
                     offset: desire.offset,
                     length: desire.length,

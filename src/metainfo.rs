@@ -1,5 +1,5 @@
-use bip_bencode::{BencodeRef,BRefAccess,BDictAccess};
-use error::{Error,Result};
+use bip_bencode::{BencodeRef, BRefAccess, BDictAccess};
+use error::{Error, Result};
 use ring::digest;
 use std::fmt;
 use std::str;
@@ -8,7 +8,9 @@ use itertools::Itertools;
 
 pub const INFO_HASH_SIZE: usize = 20;
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct InfoHash { pub hash: [u8; PIECE_HASH_SIZE] }
+pub struct InfoHash {
+    pub hash: [u8; PIECE_HASH_SIZE],
+}
 
 impl fmt::Debug for InfoHash {
     fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
@@ -18,7 +20,9 @@ impl fmt::Debug for InfoHash {
 
 pub const PIECE_HASH_SIZE: usize = 20;
 #[derive(Clone)]
-pub struct PieceHash { pub hash: [u8; PIECE_HASH_SIZE] }
+pub struct PieceHash {
+    pub hash: [u8; PIECE_HASH_SIZE],
+}
 
 impl fmt::Debug for PieceHash {
     fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
@@ -47,10 +51,7 @@ pub struct MetaInfo {
 
 #[derive(Debug, Clone)]
 pub enum FileInfo {
-    Single {
-        name: String,
-        length: u64,
-    },
+    Single { name: String, length: u64 },
     Multi {
         name: String,
         files: Vec<SubFileInfo>,
@@ -80,7 +81,9 @@ impl MetaInfo {
     pub fn new(src: BencodeRef) -> Result<Self> {
         let d = src.dict().ok_or_err("MetaInfo src not dict")?;
         let info = d.lookup("info".as_bytes())
-            .ok_or_err("missing 'info'")?.dict().ok_or_err("'info' not a dict")?;
+            .ok_or_err("missing 'info'")?
+            .dict()
+            .ok_or_err("'info' not a dict")?;
 
         // for (k,_) in d.to_list() {
         //     println!("key: {}", str::from_utf8(k)?);
@@ -89,7 +92,8 @@ impl MetaInfo {
         // length in bytes of each piece
         let piece_length = info.lookup("piece length".as_bytes())
             .ok_or_err("missing 'piece length'")?
-            .int().ok_or_err("'piece length' not an int")? as u32;
+            .int()
+            .ok_or_err("'piece length' not an int")? as u32;
         if piece_length <= 0 {
             return Err(Error::new_str(&format!("piece_length {} < 0", piece_length)));
         }
@@ -97,34 +101,40 @@ impl MetaInfo {
         // concatenation of each piece hash
         let pieces_hashes_concat = info.lookup("pieces".as_bytes())
             .ok_or_err("missing 'pieces'")?
-            .bytes().ok_or_err("'piece' not bytes")?;
+            .bytes()
+            .ok_or_err("'piece' not bytes")?;
         if pieces_hashes_concat.len() % PIECE_HASH_SIZE != 0 {
             return Err(Error::new_str(&format!("piece hashes length {} not divisible by {}",
-                                              pieces_hashes_concat.len(), PIECE_HASH_SIZE)));
+                                               pieces_hashes_concat.len(),
+                                               PIECE_HASH_SIZE)));
         }
-        let piece_hashes = pieces_hashes_concat
-            .chunks(PIECE_HASH_SIZE).map(|a| {
+        let piece_hashes = pieces_hashes_concat.chunks(PIECE_HASH_SIZE)
+            .map(|a| {
                 let mut h = [0; PIECE_HASH_SIZE];
                 h.copy_from_slice(a);
                 PieceHash { hash: h }
-            }).collect::<Vec<_>>();
+            })
+            .collect::<Vec<_>>();
 
         let res = MetaInfo {
             announce: d.lookup("announce".as_bytes())
                 .ok_or_err("missing 'announce'")?
-                .str().ok_or_err("'announce' not a string")?.to_string(),
+                .str()
+                .ok_or_err("'announce' not a string")?
+                .to_string(),
             info_hash: make_info_hash(d.lookup("info".as_bytes())
-                .ok_or_err("missing 'info'")?.buffer())?,
+                .ok_or_err("missing 'info'")?
+                .buffer())?,
             piece_length: piece_length,
             piece_hashes: piece_hashes,
             file_info: Self::load_file_info(info)?,
         };
 
         if ((res.num_pieces() as u64) * res.piece_length as u64) < res.total_size() {
-            return Err(Error::new_str("pieces and total size don't match"))
+            return Err(Error::new_str("pieces and total size don't match"));
         }
         if ((res.num_pieces() as u64 - 1) * res.piece_length as u64) > res.total_size() {
-            return Err(Error::new_str("pieces and total size don't match"))
+            return Err(Error::new_str("pieces and total size don't match"));
         }
 
         Ok(res)
@@ -133,10 +143,12 @@ impl MetaInfo {
     fn load_file_info(info: &BDictAccess<BencodeRef>) -> Result<FileInfo> {
         let name = info.lookup("name".as_bytes())
             .ok_or_err("missing 'info.name'")?
-            .str().ok_or_err("'info.name' not str")?;
+            .str()
+            .ok_or_err("'info.name' not str")?;
         let length = info.lookup("length".as_bytes())
             .ok_or_err("missing 'info.length'")?
-            .int().ok_or_err("'info.length' not int")?;
+            .int()
+            .ok_or_err("'info.length' not int")?;
         Ok(FileInfo::Single {
             name: name.to_owned(),
             length: length as u64,
@@ -144,7 +156,7 @@ impl MetaInfo {
     }
 
     pub fn num_pieces(&self) -> usize {
-        return self.piece_hashes.len()
+        return self.piece_hashes.len();
     }
 
     /// Size in bytes of the whole torrent.

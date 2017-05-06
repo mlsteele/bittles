@@ -1,27 +1,29 @@
-use byteorder::{ByteOrder,BigEndian};
+use byteorder::{ByteOrder, BigEndian};
 use ring::rand::SystemRandom;
 use std::fmt;
 use std::io::Read;
 use std::io;
 use std;
-use bytes::{BytesMut,Buf};
+use bytes::{BytesMut, Buf};
 use tokio_core::net;
-use tokio_core::net::{TcpStream};
+use tokio_core::net::TcpStream;
 use tokio_io;
-use tokio_io::{AsyncWrite,AsyncRead};
-use tokio_io::io::{WriteHalf,ReadHalf};
-use futures::future::{Future,BoxFuture};
+use tokio_io::{AsyncWrite, AsyncRead};
+use tokio_io::io::{WriteHalf, ReadHalf};
+use futures::future::{Future, BoxFuture};
 use futures::future;
 
-use error::{Error,Result};
+use error::{Error, Result};
 use itertools::Itertools;
-use metainfo::{INFO_HASH_SIZE};
-use metainfo::{InfoHash};
-use util::{ReadWire,byte_to_bits,bits_to_byte};
+use metainfo::INFO_HASH_SIZE;
+use metainfo::InfoHash;
+use util::{ReadWire, byte_to_bits, bits_to_byte};
 
 pub const PEERID_SIZE: usize = 20;
 #[derive(Clone)]
-pub struct PeerID { pub id: [u8; PEERID_SIZE] }
+pub struct PeerID {
+    pub id: [u8; PEERID_SIZE],
+}
 
 impl fmt::Debug for PeerID {
     fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
@@ -40,9 +42,7 @@ impl PeerID {
         id[4] = '0' as u8;
         id[5] = '0' as u8;
         id[6] = '1' as u8;
-        Ok(Self {
-            id: id
-        })
+        Ok(Self { id: id })
     }
 }
 
@@ -62,12 +62,12 @@ impl BitTorrentPeerCodec {
         const NUM_LEN: usize = 4;
         if src.len() < NUM_LEN {
             // Wait for the frame size
-            return None
+            return None;
         }
         let message_length = BigEndian::read_u32(src.as_ref());
         if src.len() + NUM_LEN < message_length as usize {
             // Wait for complete frame
-            return None
+            return None;
         }
         Some(message_length)
     }
@@ -92,10 +92,9 @@ impl BitTorrentPeerCodec {
                 1 => Ok(Unchoke),
                 2 => Ok(Interested),
                 3 => Ok(NotInterested),
-                4 | 5 | 6 | 7 | 8 | 9 =>
-                    Err(Error::new_peer(&format!("message id {} specified no body", message_id))),
+                4 | 5 | 6 | 7 | 8 | 9 => Err(Error::new_peer(&format!("message id {} specified no body", message_id))),
                 _ => Err(Error::new_peer(&format!("unknown message id {} (no-body)", message_id))),
-            }
+            };
         }
 
         let body_length: usize = message_length - 1;
@@ -164,7 +163,6 @@ impl BitTorrentPeerCodec {
             _ => Err(Error::new_peer(&format!("unknown message id {} (+body)", message_id))),
         }
     }
-
 }
 
 impl tokio_io::codec::Decoder for BitTorrentPeerCodec {
@@ -183,7 +181,10 @@ impl tokio_io::codec::Decoder for BitTorrentPeerCodec {
         // Drop the bytes representing message_length
         let _ = src.split_to(NUM_LEN);
 
-        assert!(src.len() >= message_length as usize, "decoder bug: buf_len:{} < msg_len:{}", src.len(), message_length);
+        assert!(src.len() >= message_length as usize,
+                "decoder bug: buf_len:{} < msg_len:{}",
+                src.len(),
+                message_length);
 
         // Take the message out of the source.
         // Also convert it to a Buf.
@@ -192,7 +193,6 @@ impl tokio_io::codec::Decoder for BitTorrentPeerCodec {
 
         Self::decode_message(src).map(Some)
     }
-
 }
 
 impl tokio_io::codec::Encoder for BitTorrentPeerCodec {
@@ -208,26 +208,27 @@ impl tokio_io::codec::Encoder for BitTorrentPeerCodec {
             Message::KeepAlive => {
                 dst.ensure(4);
                 dst.put_u32::<BE>(0); // message length
-            },
+            }
             Message::Choke | Message::Unchoke | Message::Interested | Message::NotInterested => {
                 dst.ensure(4 + 1);
                 dst.put_u32::<BE>(1); // message length
                 dst.put_u8(message_id);
-            },
+            }
             Message::Request { piece, offset, length } => {
-                dst.ensure(4 + 1 + 4*3);
-                dst.put_u32::<BE>(1 + 4*3); // message length
+                dst.ensure(4 + 1 + 4 * 3);
+                dst.put_u32::<BE>(1 + 4 * 3); // message length
                 dst.put_u8(message_id);
                 dst.put_u32::<BE>(piece);
                 dst.put_u32::<BE>(offset);
                 dst.put_u32::<BE>(length);
-            },
-            Message::Bitfield { ref bits } => { // TODO(jessk) why is `ref` required here?
+            }
+            Message::Bitfield { ref bits } => {
+                // TODO(jessk) why is `ref` required here?
                 // TODO(jessk) make this work
-                //let msg: [u8] = bits.chunks(8).map(|bb| bits_to_byte(bb)).collect();
-                //send_message_frame(stream, message_id, &msg)?;
+                // let msg: [u8] = bits.chunks(8).map(|bb| bits_to_byte(bb)).collect();
+                // send_message_frame(stream, message_id, &msg)?;
                 Err(Error::new_str(&format!("send_message not implemented for id {}", message_id)))?;
-            },
+            }
             _ => {
                 Err(Error::new_str(&format!("send_message not implemented for id {}", message_id)))?;
             }
@@ -255,11 +256,10 @@ pub fn handshake_read_1<T: io::Read>(stream: &mut T) -> Result<InfoHash> {
 }
 
 /// Read the first half of the peer handshake.
-pub fn handshake_read_1_async<R>(stream: R)
-                                 -> BoxFuture<(R,InfoHash), Error>
+pub fn handshake_read_1_async<R>(stream: R) -> BoxFuture<(R, InfoHash), Error>
     where R: AsyncRead + Send + 'static
 {
-    use tokio_io::io::{read_exact};
+    use tokio_io::io::read_exact;
 
     future::ok::<_, std::io::Error>(())
         // Protocol string
@@ -302,20 +302,18 @@ pub fn handshake_read_2<T: io::Read>(stream: &mut T) -> Result<PeerID> {
     // Peer id
     let mut peer_id = [0; PEERID_SIZE];
     stream.read_exact(&mut peer_id)?;
-    Ok(PeerID{id: peer_id})
+    Ok(PeerID { id: peer_id })
 }
 
 /// Read the last half of the peer handshake.
-pub fn handshake_read_2_async<R>(stream: R) -> BoxFuture<(R,PeerID), Error>
+pub fn handshake_read_2_async<R>(stream: R) -> BoxFuture<(R, PeerID), Error>
     where R: AsyncRead + Send + 'static
 {
-    use tokio_io::io::{read_exact};
+    use tokio_io::io::read_exact;
 
     // Peer id
     read_exact(stream, [0; PEERID_SIZE])
-        .map(|(stream, peer_id)| {
-            (stream, PeerID{id: peer_id})
-        })
+        .map(|(stream, peer_id)| (stream, PeerID { id: peer_id }))
         .map_err(|e| e.into())
         .boxed()
 }
@@ -343,8 +341,7 @@ pub fn handshake_send<T: io::Write>(stream: &mut T, info_hash: InfoHash, peer_id
 }
 
 /// Used both for starting and handling connections.
-pub fn handshake_send_async<W>(stream: W, info_hash: InfoHash, peer_id: PeerID)
-                               -> BoxFuture<W, Error>
+pub fn handshake_send_async<W>(stream: W, info_hash: InfoHash, peer_id: PeerID) -> BoxFuture<W, Error>
     where W: AsyncWrite + Send + 'static
 {
     use tokio_io::io::write_all;
@@ -354,22 +351,20 @@ pub fn handshake_send_async<W>(stream: W, info_hash: InfoHash, peer_id: PeerID)
     let pstrlen: u8 = pstr.len() as u8;
 
     write_all(stream, [pstrlen])
-        .and_then(move |(stream,_)| {
-            write_all(stream, pstr)
-        })
-        .and_then(|(stream,_)| {
+        .and_then(move |(stream, _)| write_all(stream, pstr))
+        .and_then(|(stream, _)| {
             // 8 reserved bytes
             write_all(stream, [0; 8])
         })
-        .and_then(move |(stream,_)| {
+        .and_then(move |(stream, _)| {
             // Info hash
             write_all(stream, info_hash.hash)
         })
-        .and_then(move |(stream,_)| {
+        .and_then(move |(stream, _)| {
             // Peer id
             write_all(stream, peer_id.id)
         })
-        .map(|(stream,_)| stream)
+        .map(|(stream, _)| stream)
         .map_err(|e| e.into())
         .boxed()
 }
@@ -389,10 +384,9 @@ pub fn read_message<T: io::Read>(stream: &mut T) -> Result<Message> {
             1 => Ok(Unchoke),
             2 => Ok(Interested),
             3 => Ok(NotInterested),
-            4 | 5 | 6 | 7 | 8 | 9 =>
-                Err(Error::new_peer(&format!("message id {} specified no body", message_id))),
+            4 | 5 | 6 | 7 | 8 | 9 => Err(Error::new_peer(&format!("message id {} specified no body", message_id))),
             _ => Err(Error::new_peer(&format!("unknown message id {} (no-body)", message_id))),
-        }
+        };
     }
     let body_length: usize = message_length - 1;
     // Limit the stream to read to the end of this message.
@@ -469,10 +463,7 @@ mod tests {
 
     #[test]
     fn test_read_message() {
-        let sample = vec![0, 0, 0, 1, 2,
-                          0, 0, 0, 5, 4, 0, 1, 0, 1,
-                          0, 0, 0, 1, 1,
-                          9, 9];
+        let sample = vec![0, 0, 0, 1, 2, 0, 0, 0, 5, 4, 0, 1, 0, 1, 0, 0, 0, 1, 1, 9, 9];
         let mut reader = sample.as_slice();
         {
             let m = read_message(&mut reader).unwrap();
@@ -484,7 +475,7 @@ mod tests {
             println!("{:?}", m);
             match m {
                 Message::Have { piece } => assert_eq!(piece, 65537),
-                _ => assert!(false)
+                _ => assert!(false),
             }
         }
         {
@@ -509,22 +500,23 @@ pub fn send_message<T: io::Write>(stream: &mut T, msg: &Message) -> Result<()> {
     match *msg {
         Message::KeepAlive => {
             stream.write_all(&[0, 0, 0, 0])?;
-        },
+        }
         Message::Choke | Message::Unchoke | Message::Interested | Message::NotInterested => {
             send_message_frame(stream, message_id, &[])?;
-        },
+        }
         Message::Request { piece, offset, length } => {
             let mut buf = [0; 3 * 4];
             BigEndian::write_u32(&mut buf[..4], piece);
             BigEndian::write_u32(&mut buf[4..8], offset);
             BigEndian::write_u32(&mut buf[8..], length);
             send_message_frame(stream, message_id, &buf)?;
-        },
-        Message::Bitfield { ref bits } => { // TODO(jessk) why is `ref` required here?
+        }
+        Message::Bitfield { ref bits } => {
+            // TODO(jessk) why is `ref` required here?
             // TODO(jessk) make this work
-            //let msg: [u8] = bits.chunks(8).map(|bb| bits_to_byte(bb)).collect();
-            //send_message_frame(stream, message_id, &msg)?;
-        },
+            // let msg: [u8] = bits.chunks(8).map(|bb| bits_to_byte(bb)).collect();
+            // send_message_frame(stream, message_id, &msg)?;
+        }
         _ => {
             Err(Error::new_str(&format!("send_message not implemented for id {}", message_id)))?;
         }
@@ -593,27 +585,30 @@ impl Message {
                 let total = bits.len();
                 let set = bits.iter().filter(|b| **b).count();
                 format!("Bitfield {{ total:{} set:{} }}", total, set)
-            },
+            }
             &Message::Piece { ref piece, ref offset, ref block } => {
-                format!("Piece {{ piece:{} offset:{} block:[len {}] }}", piece, offset, block.len())
-            },
+                format!("Piece {{ piece:{} offset:{} block:[len {}] }}",
+                        piece,
+                        offset,
+                        block.len())
+            }
             _ => format!("{:?}", self),
         }
     }
 
     pub fn message_id(&self) -> u8 {
         match *self {
-            Message::KeepAlive                             => 0,
-            Message::Choke                                 => 0,
-            Message::Unchoke                               => 1,
-            Message::Interested                            => 2,
-            Message::NotInterested                         => 3,
-            Message::Have {piece:_}                        => 4,
-            Message::Bitfield {bits:_}                     => 5,
-            Message::Request {piece:_, offset:_, length:_} => 6,
-            Message::Piece {piece:_, offset:_, block:_}    => 7,
-            Message::Cancel {piece:_, offset:_, length:_}  => 8,
-            Message::Port {port:_}                         => 9,
+            Message::KeepAlive => 0,
+            Message::Choke => 0,
+            Message::Unchoke => 1,
+            Message::Interested => 2,
+            Message::NotInterested => 3,
+            Message::Have { piece: _ } => 4,
+            Message::Bitfield { bits: _ } => 5,
+            Message::Request { piece: _, offset: _, length: _ } => 6,
+            Message::Piece { piece: _, offset: _, block: _ } => 7,
+            Message::Cancel { piece: _, offset: _, length: _ } => 8,
+            Message::Port { port: _ } => 9,
         }
     }
 }
