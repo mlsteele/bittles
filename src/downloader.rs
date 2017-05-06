@@ -1,8 +1,6 @@
-use futures::future::{Future,BoxFuture,FutureResult};
+use futures::future::{Future,FutureResult};
 use futures::future;
-use futures::{Stream,Sink};
 use std::default::Default;
-use std::io::Write;
 use std::net::{SocketAddr};
 use std::path::Path;
 use std::time::Duration;
@@ -14,14 +12,39 @@ use tokio_io::codec::{Framed};
 use datastore::DataStore;
 use error::{Error,Result};
 use fillable::*;
-use manifest::{ManifestWithFile,Manifest};
+use manifest::{ManifestWithFile};
 use metainfo::{MetaInfo,InfoHash};
 use peer_protocol::{PeerID,Message,BitTorrentPeerCodec};
 use peer_protocol;
 use tracker::{TrackerClient};
 use util::{tcp_connect2};
 
+type BxFuture<T,E> = Box<Future<Item=T, Error=E>>;
+
+trait FutureEnhanced<T,E> {
+    fn bxed(self) -> BxFuture<T,E>
+        where Self: Sized + 'static;
+}
+
+impl<T,E,X> FutureEnhanced<T,E> for X
+    where X: future::Future<Item=T, Error=E> + 'static
+{
+    fn bxed(self) -> BxFuture<T,E> {
+        return Box::new(self)
+    }
+}
+
 type PeerStream = Framed<TcpStream, BitTorrentPeerCodec>;
+
+struct DownloaderState {
+    info: MetaInfo,
+    datastore: DataStore,
+    manifest: ManifestWithFile,
+    peer_state: PeerState,
+    blah_state: BlahState,
+}
+
+type LoopState = (PeerStream, DownloaderState);
 
 pub fn start<P: AsRef<Path>>(
     info: MetaInfo,
@@ -33,8 +56,8 @@ pub fn start<P: AsRef<Path>>(
     let mut core = reactor::Core::new()?;
     let handle = core.handle();
 
-    let mut datastore = DataStore::create_or_open(&info, store_path)?;
-    let mut manifest = ManifestWithFile::load_or_new(info.clone(), manifest_path)?;
+    let datastore = DataStore::create_or_open(&info, store_path)?;
+    let manifest = ManifestWithFile::load_or_new(info.clone(), manifest_path)?;
     let mut tc = TrackerClient::new(info.clone(), peer_id.clone())?;
 
     let tracker_res = tc.easy_start()?;
@@ -52,7 +75,7 @@ pub fn start<P: AsRef<Path>>(
     let num_pieces = info.num_pieces();
     let info_hash = info.info_hash.clone();
 
-    let mut dstate = DownloaderState {
+    let dstate = DownloaderState {
         info: info,
         datastore: datastore,
         manifest: manifest,
@@ -61,13 +84,11 @@ pub fn start<P: AsRef<Path>>(
     };
 
     let future_root = connect_peer(peer.address, info_hash, peer_id, &handle)
-        .and_then(|(mut stream, remote_peer_id)| {
+        .and_then(|(stream, remote_peer_id)| {
             let dstate = dstate;
 
-            stream.for_each(|m| {
-                println!("message: {}", m.summarize());
-                Ok(())
-            })
+            main_loop(stream, dstate)
+
                 // .map_err(|err, _s| err)
                 // .map(|(_, _s)| Ok(()))
 
@@ -159,12 +180,12 @@ fn connect_peer(
     info_hash: InfoHash,
     peer_id: PeerID,
     handle: &reactor::Handle)
-    -> Box<Future<Item=(PeerStream, PeerID), Error=Error>>
+    -> BxFuture<(PeerStream, PeerID), Error>
 {
     let info_hash2 = info_hash.clone();
 
     println!("connecting...");
-    Box::new(tcp_connect2(&addr, Duration::from_millis(3000), &handle)
+    tcp_connect2(&addr, Duration::from_millis(3000), &handle)
         .map_err(|e| Error::annotate(e, "peer connection failed"))
         .and_then(|stream| -> FutureResult<TcpStream,Error> {
             match stream {
@@ -172,14 +193,14 @@ fn connect_peer(
                 None => future::err(Error::new_str(&"peer connection timed out")),
             }
         })
-        .and_then(move |mut stream| {
+        .and_then(move |stream| {
             println!("connected");
             peer_protocol::handshake_send_async(stream, info_hash.clone(), peer_id.clone())
         })
-        .and_then(|mut stream| {
+        .and_then(|stream| {
             peer_protocol::handshake_read_1_async(stream)
         })
-        .and_then(move |(mut stream, remote_info_hash)| {
+        .and_then(move |(stream, remote_info_hash)| {
             println!("remote info hash: {:?}", remote_info_hash);
             if remote_info_hash != info_hash2 {
                 return Err(Error::new_str(&format!("peer info hash mismatch peer:{:?} me:{:?}",
@@ -187,21 +208,39 @@ fn connect_peer(
             }
             Ok(stream)
         })
-        .and_then(|mut stream| {
+        .and_then(|stream| {
             peer_protocol::handshake_read_2_async(stream)
                 .map(move |(stream, remote_peer_id)| {
                     (stream, remote_peer_id)
                 })
         })
-        .and_then(|(mut stream, remote_peer_id)| {
+        .and_then(|(stream, remote_peer_id)| {
             println!("remote peer id: {:?}", remote_peer_id);
 
             // let stream: Framed<TcpStream,BitTorrentPeerCodec> = stream.framed(BitTorrentPeerCodec);
             let stream: PeerStream = stream.framed(BitTorrentPeerCodec);
             Ok((stream, remote_peer_id))
-        }))
+        })
+        .bxed()
 }
 
+/// Compose the main loop.
+fn main_loop(stream: PeerStream, dstate: DownloaderState) -> BxFuture<(), Error> {
+    let lstate: LoopState = (stream, dstate);
+    future::loop_fn(lstate, loop_step).bxed()
+}
+
+/// One step of the main loop.
+fn loop_step(lstate: LoopState) -> BxFuture<future::Loop<(), LoopState>, Error> {
+    use futures::future::Loop::{Break,Continue};
+    let (stream, dstate) = lstate;
+    future::ok(Continue((stream, dstate))).bxed()
+    // stream.and_then(|m| {
+    //     println!("message: {}", m.summarize());
+    // });
+}
+
+/// One synchronous step.
 fn single_step(msg: Message, mut dstate: DownloaderState) -> Result<Option<Message>> {
     println!("message: {}", msg.summarize());
     match msg {
@@ -221,16 +260,16 @@ fn single_step(msg: Message, mut dstate: DownloaderState) -> Result<Option<Messa
                     i_start = b;
                     in_interval = true;
                 } else if !bits[b] && in_interval {
-                    dstate.peer_state.has.add(i_start as u32, b as u32);
+                    dstate.peer_state.has.add(i_start as u32, b as u32)?;
                     in_interval = false;
                 }
             }
             if in_interval {
-                dstate.peer_state.has.add(i_start as u32, dstate.info.num_pieces() as u32);
+                dstate.peer_state.has.add(i_start as u32, dstate.info.num_pieces() as u32)?;
             }
         },
         Message::Have { piece } => {
-            dstate.peer_state.has.add(piece, piece+1);
+            dstate.peer_state.has.add(piece, piece+1)?;
         },
         Message::Piece { piece, offset, block } => {
             dstate.datastore.write_block(piece as usize, offset, &block)?;
@@ -273,14 +312,6 @@ fn single_step(msg: Message, mut dstate: DownloaderState) -> Result<Option<Messa
     println!("state: {:?}", dstate.peer_state);
 
     Ok(None)
-}
-
-struct DownloaderState {
-    info: MetaInfo,
-    datastore: DataStore,
-    manifest: ManifestWithFile,
-    peer_state: PeerState,
-    blah_state: BlahState,
 }
 
 #[derive(Debug)]
