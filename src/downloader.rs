@@ -1,3 +1,4 @@
+use futures::{Stream,Sink};
 use futures::future::{Future,FutureResult};
 use futures::future;
 use std::default::Default;
@@ -6,8 +7,8 @@ use std::path::Path;
 use std::time::Duration;
 use tokio_core::net::{TcpStream};
 use tokio_core::reactor;
-use tokio_io::{AsyncRead};
 use tokio_io::codec::{Framed};
+use tokio_io::{AsyncRead};
 
 use datastore::DataStore;
 use error::{Error,Result};
@@ -230,19 +231,61 @@ fn main_loop(stream: PeerStream, dstate: DownloaderState) -> BxFuture<(), Error>
     future::loop_fn(lstate, loop_step).bxed()
 }
 
+// /// One step of the main loop.
+// fn loop_step(lstate: LoopState) -> BxFuture<future::Loop<(), LoopState>, Error> {
+//     use futures::future::Loop::{Break,Continue};
+//     let (stream, mut dstate) = lstate;
+//     stream
+//         .into_future()
+//         .map_err(|(err, _stream)| err)
+//         .and_then(move |(omsg, stream)| { match omsg {
+//             None => future::ok(Break(())),
+//             Some(msg) => {
+//                 match single_step(msg, &mut dstate) {
+//                     Err(err) => future::err(err),
+//                     Ok(x) => match x {
+//                         Some(out) => future::ok(Break(())),
+//                         None => future::ok(Continue((stream, dstate)))
+//                     }
+//                 }
+//             }
+//         }})
+//         .bxed()
+// }
+
 /// One step of the main loop.
 fn loop_step(lstate: LoopState) -> BxFuture<future::Loop<(), LoopState>, Error> {
     use futures::future::Loop::{Break,Continue};
-    let (stream, dstate) = lstate;
-    future::ok(Continue((stream, dstate))).bxed()
-    // stream.and_then(|m| {
-    //     println!("message: {}", m.summarize());
-    // });
+    let (stream, mut dstate) = lstate;
+    // Note: There are many `bxed` calls in here because match arms must return the same type.
+    // And the long long types produced by future chaining are not equivalent.
+    // So the boxing turns them into trait objects implementing the same specified Future.
+    stream
+        .into_future()
+        .map_err(|(err, _stream)| err)
+        .and_then(move |(omsg, stream)| { match omsg {
+            None => future::ok(Break(())).bxed(),
+            Some(msg) => {
+                match single_step(msg, &mut dstate) {
+                    Err(err) => future::err(err).bxed(),
+                    Ok(x) => match x {
+                        Some(out) => {
+                            stream.send(out).map(|stream| {
+                                Continue((stream, dstate))
+                            }).bxed()
+                        }
+                        None => future::ok(Continue((stream, dstate))).bxed()
+                    }
+                }
+            }
+        }}).bxed()
 }
 
 /// One synchronous step.
-fn single_step(msg: Message, mut dstate: DownloaderState) -> Result<Option<Message>> {
-    println!("message: {}", msg.summarize());
+/// Returns a message to send.
+fn single_step(msg: Message, dstate: &mut DownloaderState) -> Result<Option<Message>> {
+    println!("message {}: {}", dstate.blah_state.nreceived, msg.summarize());
+    dstate.blah_state.nreceived += 1;
     match msg {
         Message::Choke =>         dstate.peer_state.peer_choking = true,
         Message::Unchoke =>       dstate.peer_state.peer_choking = false,
@@ -279,7 +322,6 @@ fn single_step(msg: Message, mut dstate: DownloaderState) -> Result<Option<Messa
         },
         _ => {},
     }
-    dstate.blah_state.nreceived += 1;
     if dstate.blah_state.nreceived >= 1 && dstate.peer_state.am_choking {
         let out = Message::Unchoke{};
         println!("sending message: {:?}", out);
