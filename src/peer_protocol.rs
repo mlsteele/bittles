@@ -1,8 +1,6 @@
 use byteorder::{ByteOrder, BigEndian};
 use ring::rand::SystemRandom;
 use std::fmt;
-use std::io::Read;
-use std::io;
 use std;
 use bytes::{BytesMut, Buf};
 use tokio_io;
@@ -14,7 +12,7 @@ use error::{Error, Result};
 use itertools::Itertools;
 use metainfo::INFO_HASH_SIZE;
 use metainfo::InfoHash;
-use util::{ReadWire, byte_to_bits};
+use util::byte_to_bits;
 
 pub const PEERID_SIZE: usize = 20;
 #[derive(Clone)]
