@@ -298,3 +298,11 @@ mod tests2 {
         assert_eq!(vec![1,2,3], stream.collect().wait().unwrap());
     }
 }
+
+/// Recursively create directories so there is a place
+/// for a file at `path`.
+pub fn mkdirp_for_file<P: AsRef<Path>>(file_path: P) -> std::io::Result<()> {
+    let mut dir_path = file_path.as_ref().to_owned();
+    dir_path.set_file_name("");
+    fs::create_dir_all(dir_path)
+}

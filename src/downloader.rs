@@ -19,7 +19,7 @@ use metainfo::{MetaInfo, InfoHash};
 use peer_protocol::{PeerID, Message, BitTorrentPeerCodec};
 use peer_protocol;
 use tracker::TrackerClient;
-use util::{tcp_connect2, BxFuture, FutureEnhanced, VecDequeStream};
+use util::{tcp_connect2, BxFuture, FutureEnhanced, VecDequeStream, mkdirp_for_file};
 
 type PeerStream = Framed<TcpStream, BitTorrentPeerCodec>;
 
@@ -37,6 +37,8 @@ pub fn start<P: AsRef<Path>>(info: MetaInfo, peer_id: PeerID, store_path: P, man
     let mut core = reactor::Core::new()?;
     let handle = core.handle();
 
+    mkdirp_for_file(&store_path)?;
+    mkdirp_for_file(&manifest_path)?;
     let datastore = DataStore::create_or_open(&info, store_path)?;
     let manifest = ManifestWithFile::load_or_new(info.clone(), manifest_path)?;
     let mut tc = TrackerClient::new(info.clone(), peer_id.clone())?;
