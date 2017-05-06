@@ -2,7 +2,7 @@ use byteorder::{ByteOrder, BigEndian};
 use bytes::{BytesMut, BufMut};
 use futures::future::Future;
 use futures::future;
-use futures::{Stream, Sink, Poll};
+use futures::{Stream, Poll};
 use hyper::Url;
 use std::collections::vec_deque::VecDeque;
 use std::fs::File;
@@ -16,7 +16,6 @@ use std::thread;
 use std::time::Duration;
 use std;
 use tokio_core::net::TcpStream;
-use tokio_core::net;
 use tokio_core::reactor;
 use url::form_urlencoded;
 
@@ -187,6 +186,8 @@ macro_rules! matches(
     )
 );
 
+/// Make a tcp connection with a timeout.
+/// Uses threads.
 pub fn tcp_connect<T>(addr: T, timeout: Duration) -> io::Result<std::net::TcpStream>
     where T: std::net::ToSocketAddrs + Send + 'static
 {
@@ -203,6 +204,8 @@ pub fn tcp_connect<T>(addr: T, timeout: Duration) -> io::Result<std::net::TcpStr
     rx.recv().unwrap()
 }
 
+/// Make a tcp connection with a timeout.
+/// Uses futures.
 pub fn tcp_connect2(addr: &SocketAddr, timeout: Duration, handle: &reactor::Handle) -> Box<Future<Item = Option<TcpStream>, Error = io::Error>> {
     let timeout = reactor::Timeout::new(timeout, handle).expect("tcp_connect2: could not create timeout");
     let timeout = timeout.map(|_| None::<TcpStream>);

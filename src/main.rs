@@ -36,7 +36,6 @@ use std::error::Error;
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
-use tokio_core::reactor;
 
 use peer_protocol::PeerID;
 use metainfo::*;

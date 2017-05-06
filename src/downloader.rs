@@ -64,7 +64,7 @@ pub fn start<P: AsRef<Path>>(info: MetaInfo, peer_id: PeerID, store_path: P, man
         blah_state: BlahState::default(),
     };
 
-    let future_root = connect_peer(peer.address, info_hash, peer_id, &handle).and_then(|(stream, remote_peer_id)| {
+    let future_root = connect_peer(peer.address, info_hash, peer_id, &handle).and_then(|(stream, _remote_peer_id)| {
         let dstate = dstate;
         main_loop(stream, dstate)
     });
