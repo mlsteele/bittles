@@ -16,6 +16,7 @@ use url::form_urlencoded;
 use tokio_core::reactor;
 use futures::future::Future;
 use futures::future;
+use bytes::{BytesMut,BufMut};
 
 use error::{Result};
 
@@ -222,4 +223,17 @@ pub fn write_atomic<P1, P2, F>(final_path: P1, temp_path: P2, write: F) -> Resul
     }
     fs::rename(temp_path, final_path)?;
     Ok(())
+}
+
+pub trait BytesMutEnhanced {
+    fn ensure(&mut self, capacity: usize);
+}
+
+impl BytesMutEnhanced for BytesMut {
+    fn ensure(&mut self, capacity: usize) {
+        let x = self.remaining_mut();
+        if x < capacity {
+            self.reserve(capacity - x);
+        }
+    }
 }

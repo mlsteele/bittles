@@ -192,8 +192,40 @@ impl tokio_io::codec::Encoder for BitTorrentPeerCodec {
     type Item = Message;
     type Error = Error;
 
-    fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> std::result::Result<(), Self::Error> {
-        unimplemented!();
+    fn encode(&mut self, msg: Self::Item, dst: &mut BytesMut) -> std::result::Result<(), Self::Error> {
+        type BE = BigEndian;
+        use bytes::BufMut;
+        use util::BytesMutEnhanced;
+        let message_id = msg.message_id();
+        match msg {
+            Message::KeepAlive => {
+                dst.ensure(4);
+                dst.put_u32::<BE>(0); // message length
+            },
+            Message::Choke | Message::Unchoke | Message::Interested | Message::NotInterested => {
+                dst.ensure(4 + 1);
+                dst.put_u32::<BE>(1); // message length
+                dst.put_u8(message_id);
+            },
+            Message::Request { piece, offset, length } => {
+                dst.ensure(4 + 1 + 4*3);
+                dst.put_u32::<BE>(1 + 4*3); // message length
+                dst.put_u8(message_id);
+                dst.put_u32::<BE>(piece);
+                dst.put_u32::<BE>(offset);
+                dst.put_u32::<BE>(length);
+            },
+            Message::Bitfield { ref bits } => { // TODO(jessk) why is `ref` required here?
+                // TODO(jessk) make this work
+                //let msg: [u8] = bits.chunks(8).map(|bb| bits_to_byte(bb)).collect();
+                //send_message_frame(stream, message_id, &msg)?;
+                Err(Error::new_str(&format!("send_message not implemented for id {}", message_id)))?;
+            },
+            _ => {
+                Err(Error::new_str(&format!("send_message not implemented for id {}", message_id)))?;
+            }
+        }
+        Ok(())
     }
 }
 
