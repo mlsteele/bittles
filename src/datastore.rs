@@ -1,5 +1,5 @@
 use error::{Error, Result};
-use metainfo::{MetaInfo, PieceHash};
+use metainfo::{MetaInfo, SizeInfo, PieceHash};
 use ring::digest;
 use std::fs;
 use std::io::{Seek, SeekFrom, Write};
@@ -8,8 +8,7 @@ use util::ReadWire;
 
 pub struct DataStore {
     file: fs::File,
-    num_pieces: usize,
-    piece_size: u32,
+    size_info: SizeInfo,
 }
 
 impl DataStore {
@@ -20,48 +19,28 @@ impl DataStore {
             .truncate(false)
             .open(path)
             .map_err(|e| Error::annotate(e, "datastore file could not be opened"))?;
-        f.set_len(metainfo.total_size() as u64)?;
+        f.set_len(metainfo.size_info.total_size())?;
         Ok(DataStore {
             file: f,
-            num_pieces: metainfo.num_pieces(),
-            piece_size: metainfo.piece_length,
+            size_info: metainfo.size_info.clone(),
         })
     }
 
-    pub fn write_block(&mut self, piece: usize, offset: u32, block: &[u8]) -> Result<()> {
-        self.check_piece(piece)?;
-        // last affected piece
-        let last_piece: usize = ((piece as u32) + (offset + block.len() as u32) / self.piece_size) as usize;
-        self.check_piece(last_piece)?;
-        let x = self.point(piece, offset);
+    pub fn write_block(&mut self, piece: u64, offset: u64, block: &[u8]) -> Result<()> {
+        self.size_info.check_range(piece, offset, block.len() as u64)?;
+        let x = self.size_info.absolute_offset(piece, offset);
         self.file.seek(SeekFrom::Start(x))?;
         self.file.write_all(block)?;
         Ok(())
     }
 
-    pub fn verify_piece(&mut self, piece: usize, expected: PieceHash) -> Result<bool> {
-        self.check_piece(piece)?;
-        let x = self.point(piece, 0);
+    pub fn verify_piece(&mut self, piece: u64, expected: PieceHash) -> Result<bool> {
+        self.size_info.check_piece(piece)?;
+        let x = self.size_info.absolute_offset(piece, 0);
+        let read_length = self.size_info.piece_size(piece);
         self.file.seek(SeekFrom::Start(x))?;
-        let buf = self.file.read_n(self.piece_size as u64)?;
+        let buf = self.file.read_n(read_length)?;
         let dig = digest::digest(&digest::SHA1, &buf);
-        if dig.as_ref() == expected.hash {
-            Ok(true)
-        } else {
-            Ok(false)
-        }
-    }
-
-    /// Check that a piece number is in bounds.
-    fn check_piece(&self, piece: usize) -> Result<()> {
-        match piece < self.num_pieces {
-            true => Ok(()),
-            false => Err(Error::new_str(&format!("piece out of bounds !({} < {})", piece, self.num_pieces))),
-        }
-    }
-
-    /// Calculate the byte offset. Does not check bounds.
-    fn point(&self, piece: usize, offset: u32) -> u64 {
-        (piece as u64) * (self.piece_size as u64) + (offset as u64)
+        Ok(dig.as_ref() == expected.hash)
     }
 }

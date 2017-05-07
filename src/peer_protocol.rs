@@ -325,10 +325,11 @@ mod tests {
 
     // #[test]
     fn test_reader() {
+        use util::ReadWire;
         // This test is to understand how Read.take works when you don't use it all.
         let sample = vec![0, 1, 2, 3, 4, 5, 6, 7, 8];
         let mut reader = sample.as_slice();
-        let mut reader2 = reader.take(1);
+        let mut reader2 = std::io::Read::take(reader, 1);
         assert_eq!(reader2.read_n(3).unwrap(), vec![0, 1, 2]);
     }
 }

@@ -294,7 +294,7 @@ mod tests2 {
         vec.push_back(1);
         vec.push_back(2);
         vec.push_back(3);
-        let stream = VecDequeStream::new(vec);
+        let stream = VecDequeStream::<i64, ()>::new(vec);
         assert_eq!(vec![1,2,3], stream.collect().wait().unwrap());
     }
 }

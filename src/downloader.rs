@@ -55,7 +55,7 @@ pub fn start<P: AsRef<Path>>(info: MetaInfo, peer_id: PeerID, store_path: P, man
 
     let peer = tracker_res.peers[0].clone();
 
-    let num_pieces = info.num_pieces();
+    let num_pieces = info.num_pieces() as u64;
     let info_hash = info.info_hash.clone();
 
     let dstate = DownloaderState {
@@ -138,13 +138,12 @@ fn loop_step(lstate: LoopState) -> BxFuture<future::Loop<String, LoopState>, Err
                     match single_step(msg, &mut dstate) {
                         Err(err) => future::err(err).bxed(),
                         Ok(outs) => {
-                            {
-                                    let n_outs = outs.len();
-                                    stream.send_all(VecDequeStream::<Message, Error>::new(outs)).map(move |(stream, _)| {
-                                        println!("sent {}", n_outs);
-                                        Continue((stream, dstate))
-                                    })
-                                }
+                            let n_outs = outs.len();
+                            stream.send_all(VecDequeStream::<Message, Error>::new(outs))
+                                .map(move |(stream, _)| {
+                                    println!("sent {}", n_outs);
+                                    Continue((stream, dstate))
+                                })
                                 .bxed()
                         }
                     }
@@ -181,20 +180,20 @@ fn single_step(msg: Message, dstate: &mut DownloaderState) -> Result<VecDeque<Me
                     i_start = b;
                     in_interval = true;
                 } else if !bits[b] && in_interval {
-                    dstate.peer_state.has.add(i_start as u32, b as u32)?;
+                    dstate.peer_state.has.add(i_start as u64, b as u64)?;
                     in_interval = false;
                 }
             }
             if in_interval {
-                dstate.peer_state.has.add(i_start as u32, dstate.info.num_pieces() as u32)?;
+                dstate.peer_state.has.add(i_start as u64, dstate.info.num_pieces() as u64)?;
             }
         }
         Message::Have { piece } => {
-            dstate.peer_state.has.add(piece, piece + 1)?;
+            dstate.peer_state.has.add(piece as u64, piece as u64 + 1)?;
         }
         Message::Piece { piece, offset, block } => {
-            dstate.datastore.write_block(piece as usize, offset, &block)?;
-            dstate.manifest.manifest.add_block(piece as usize, offset, block.len() as u32)?;
+            dstate.datastore.write_block(piece as u64, offset as u64, &block)?;
+            dstate.manifest.manifest.add_block(piece as u64, offset as u64, block.len() as u64)?;
             dstate.manifest.store()?;
             dstate.blah_state.waiting = false;
         }
@@ -252,13 +251,13 @@ pub struct BlahState {
 }
 
 impl PeerState {
-    fn new(num_pieces: usize) -> Self {
+    fn new(num_pieces: u64) -> Self {
         PeerState {
             peer_interested: false,
             peer_choking: true,
             am_interested: false,
             am_choking: true,
-            has: Fillable::new(num_pieces as u32),
+            has: Fillable::new(num_pieces),
         }
     }
 }

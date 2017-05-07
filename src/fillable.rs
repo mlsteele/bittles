@@ -4,12 +4,12 @@ use std::cmp;
 /// Fillable is a range from [0,size) that can be filled by subranges.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Fillable {
-    size: u32,
+    size: u64,
     contents: Vec<Interval>,
 }
 
 impl Fillable {
-    pub fn new(size: u32) -> Self {
+    pub fn new(size: u64) -> Self {
         Fillable {
             size: size,
             contents: Vec::new(),
@@ -22,11 +22,11 @@ impl Fillable {
         return r;
     }
 
-    pub fn size(&self) -> u32 {
+    pub fn size(&self) -> u64 {
         return self.size;
     }
 
-    pub fn has(&self, n: u32) -> bool {
+    pub fn has(&self, n: u64) -> bool {
         for i in self.contents.iter() {
             if n < i.end {
                 return i.start <= n;
@@ -36,7 +36,7 @@ impl Fillable {
     }
 
     /// Fill the range [a, b)
-    pub fn add(&mut self, a: u32, b: u32) -> Result<()> {
+    pub fn add(&mut self, a: u64, b: u64) -> Result<()> {
         // println!("\tadd({}, {}) to {:?}", a, b, self);
         let mut place = 0;
         let mut found = false;
@@ -99,7 +99,7 @@ impl Fillable {
     }
 
     /// Get the index of the first unfilled byte.
-    pub fn first_unfilled(&self) -> Option<u32> {
+    pub fn first_unfilled(&self) -> Option<u64> {
         if self.contents.is_empty() {
             return Some(0);
         }
@@ -145,12 +145,12 @@ impl Fillable {
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 struct Interval {
-    pub start: u32, // inclusive
-    pub end: u32, // exclusive
+    pub start: u64, // inclusive
+    pub end: u64, // exclusive
 }
 
 impl Interval {
-    fn new(a: u32, b: u32) -> Self {
+    fn new(a: u64, b: u64) -> Self {
         Self { start: a, end: b }
     }
     fn check_rep(&self) -> Result<()> {

@@ -1,13 +1,14 @@
 use error::{Error, Result};
+use serde_cbor;
 use std::cmp;
 use std::fmt;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std;
+
 use fillable::*;
 use metainfo::*;
-use std::path::{Path, PathBuf};
 use util::write_atomic;
-use std::fs;
-use serde_cbor;
 
 /// Manifest describes the state of what parts of a torrent have been downloaded and verified.
 /// A manifest is associated with a single torrent.
@@ -15,8 +16,7 @@ use serde_cbor;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Manifest {
     info_hash: InfoHash,
-    num_pieces: usize,
-    piece_length: u32,
+    size_info: SizeInfo,
     /// Whether each piece has been verified
     verified: Vec<bool>,
     /// Which parts of each piece have been downloaded
@@ -27,9 +27,6 @@ impl fmt::Display for Manifest {
     fn fmt(&self, f: &mut fmt::Formatter) -> std::result::Result<(), fmt::Error> {
         writeln!(f, "Manifest {{")?;
         writeln!(f, "    info_hash: {:?}", self.info_hash)?;
-        writeln!(f, "    piece_length: {:?} bytes", self.piece_length)?;
-        // writeln!(f, "    num_pieces: {:?} pieces", self.num_pieces)?;
-        // writeln!(f, "    total size: {} bytes", self.total_size())?;
         writeln!(f, "}}")?;
         Ok(())
     }
@@ -38,23 +35,26 @@ impl fmt::Display for Manifest {
 impl Manifest {
     pub fn new(info: MetaInfo) -> Self {
         let num_pieces = info.num_pieces();
-        let piece_length = info.piece_length;
+
+        let mut present: Vec<Fillable> = std::iter::repeat(Fillable::new(info.size_info.non_last_piece_size()))
+            .take(num_pieces - 1)
+            .collect();
+        present.push(Fillable::new(info.size_info.last_piece_size()));
+
         Self {
             info_hash: info.info_hash.clone(),
-            num_pieces: num_pieces,
-            piece_length: piece_length,
+            size_info: info.size_info.clone(),
             verified: vec![false; num_pieces],
-            // TODO this is wrong. The last piece could be smaller.
-            present: std::iter::repeat(Fillable::new(piece_length)).take(num_pieces).collect(),
+            present: present,
         }
     }
 
     /// Sanity check the after a load.
     fn check(&self) -> Result<()> {
-        if self.verified.len() != self.num_pieces {
+        if self.verified.len() as u64 != self.size_info.num_pieces() {
             return Err(Error::new_str("wrong sized verified list"));
         }
-        if self.present.len() != self.num_pieces {
+        if self.present.len() as u64 != self.size_info.num_pieces() {
             return Err(Error::new_str("wrong sized present list"));
         }
         Ok(())
@@ -63,63 +63,63 @@ impl Manifest {
     /// Record the addition of a block.
     /// Can span multiple pieces.
     /// Returns an error if it dives off the end of the file.
-    pub fn add_block(&mut self, piece: usize, offset: u32, length: u32) -> Result<()> {
+    pub fn add_block(&mut self, piece: u64, offset: u64, length: u64) -> Result<()> {
+        // TODO get back and verify this. Make a test.
+
         // println!("add_block({}, {}, {}) to {:?}", piece, offset, length, self);
 
+        self.size_info.check_range(piece, offset, length)?;
+
         // find the last affected piece
-        let last_byte: u64 = (piece as u64 * self.piece_length as u64) + (offset + length) as u64;
-        let last_piece: usize = if last_byte % (self.piece_length as u64) == 0 {
-            (last_byte / (self.piece_length as u64) - 1) as usize
-        } else {
-            (last_byte / self.piece_length as u64) as usize
-        };
-        self.check_piece(last_piece)?;
+        let last_piece = self.size_info.piece_at_point(piece, offset + length - 1);
         // println!("\tThe last affected piece is {}", last_piece);
 
         // Fill the first piece
         {
             // println!("\tWill add interval from {} to {}", offset, )
-            self.present[piece].add(offset, cmp::min(offset + length, self.piece_length))?;
+            self.present[piece as usize].add(offset,
+                     cmp::min(offset + length, self.size_info.piece_size(piece)))?;
         }
         // Fill the in-between pieces
         for i in piece + 1..last_piece {
-            self.present[i].fill();
+            self.present[i as usize].fill();
         }
         // Fill the last piece
-        if piece != last_piece {
-            let upto = if (offset + length) % self.piece_length == 0 {
-                self.piece_length
-            } else {
-                (offset + length) % self.piece_length
+        if last_piece != piece {
+            // local means local to the piece
+            let local_end = {
+                let last_piece_start = self.size_info.absolute_offset(last_piece, 0);
+                let absolute_end = self.size_info.absolute_offset(piece, offset + length);
+                absolute_end - last_piece_start
             };
-            self.present[last_piece].add(0, upto)?;
+            self.present[last_piece as usize].add(0, local_end)?;
         }
         Ok(())
     }
 
     /// Remove a piece
-    pub fn remove_piece(&mut self, piece: usize) -> Result<()> {
-        self.check_piece(piece)?;
-        self.present[piece].clear();
+    pub fn remove_piece(&mut self, piece: u64) -> Result<()> {
+        self.size_info.check_piece(piece)?;
+        self.present[piece as usize].clear();
         Ok(())
     }
 
     /// Record that a piece was verified.
-    pub fn verify(&mut self, piece: usize) -> Result<()> {
-        self.check_piece(piece)?;
-        self.verified[piece] = true;
+    pub fn mark_verified(&mut self, piece: u64) -> Result<()> {
+        self.size_info.check_piece(piece)?;
+        self.verified[piece as usize] = true;
         Ok(())
     }
 
-    pub fn is_full(&self, piece: usize) -> Result<bool> {
-        self.check_piece(piece)?;
-        Ok(self.present[piece].is_full())
+    pub fn is_full(&self, piece: u64) -> Result<bool> {
+        self.size_info.check_piece(piece)?;
+        Ok(self.present[piece as usize].is_full())
     }
 
     /// Get the next desired block.
     /// This is the first block that has not been added.
     pub fn next_desired_block(&self) -> Option<BlockRequest> {
-        for i in 0..self.num_pieces {
+        for i in 0..self.size_info.num_pieces() as usize {
             let p = &self.present[i];
             if !p.is_full() {
                 if let Some(x) = self.present[i].first_unfilled() {
@@ -128,23 +128,14 @@ impl Manifest {
                         let max_length = 1 << 14;
                         return Some(BlockRequest {
                             piece: i as u32,
-                            offset: x,
-                            length: cmp::min(left, max_length),
+                            offset: x as u32,
+                            length: cmp::min(left as u32, max_length),
                         });
                     }
                 }
             }
         }
         None
-    }
-
-    /// Check that a piece number is in bounds.
-    fn check_piece(&self, piece: usize) -> Result<()> {
-        #[allow(unused_comparisons)]
-        match 0 <= piece && piece < self.num_pieces {
-            true => Ok(()),
-            false => Err(Error::new_str(&format!("piece out of bounds !({} < {})", piece, self.num_pieces))),
-        }
     }
 }
 
@@ -162,7 +153,7 @@ mod tests {
         let info = MetaInfo {
             announce: std::string::String::new(),
             info_hash: InfoHash { hash: [0; INFO_HASH_SIZE] },
-            piece_length: 6,
+            leader_piece_length: 6,
             piece_hashes: vec![ph.clone(), ph.clone(), ph.clone()],
             file_info: FileInfo::Single {
                 name: "".to_owned(),
@@ -195,6 +186,7 @@ mod tests {
     }
 }
 
+/// A wrapper around Manifest that can save and load from a file.
 pub struct ManifestWithFile {
     pub manifest: Manifest,
     path: PathBuf,
