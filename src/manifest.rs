@@ -9,6 +9,7 @@ use std;
 use fillable::*;
 use metainfo::*;
 use util::write_atomic;
+use datastore::Verified;
 
 /// Manifest describes the state of what parts of a torrent have been downloaded and verified.
 /// A manifest is associated with a single torrent.
@@ -118,9 +119,9 @@ impl Manifest {
     }
 
     /// Record that a piece was verified.
-    pub fn mark_verified(&mut self, piece: u64) -> Result<()> {
-        self.size_info.check_piece(piece)?;
-        self.verified[piece as usize] = true;
+    pub fn mark_verified(&mut self, verified: Verified) -> Result<()> {
+        self.size_info.check_piece(verified.piece)?;
+        self.verified[verified.piece as usize] = true;
         Ok(())
     }
 

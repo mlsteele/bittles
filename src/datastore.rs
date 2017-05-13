@@ -6,6 +6,11 @@ use std::io::{Seek, SeekFrom, Write};
 use std::path::Path;
 use util::ReadWire;
 
+/// Value representing that a piece has been verified.
+pub struct Verified {
+    pub piece: u64,
+}
+
 pub struct DataStore {
     file: fs::File,
     size_info: SizeInfo,
@@ -34,13 +39,17 @@ impl DataStore {
         Ok(())
     }
 
-    pub fn verify_piece(&mut self, piece: u64, expected: PieceHash) -> Result<bool> {
+    pub fn verify_piece(&mut self, piece: u64, expected: PieceHash) -> Result<Option<Verified>> {
         self.size_info.check_piece(piece)?;
         let x = self.size_info.absolute_offset(piece, 0);
         let read_length = self.size_info.piece_size(piece);
         self.file.seek(SeekFrom::Start(x))?;
         let buf = self.file.read_n(read_length)?;
         let dig = digest::digest(&digest::SHA1, &buf);
-        Ok(dig.as_ref() == expected.hash)
+        if dig.as_ref() == expected.hash {
+            Ok(Some(Verified { piece: piece }))
+        } else {
+            Ok(None)
+        }
     }
 }

@@ -197,9 +197,9 @@ fn single_step(msg: Message, dstate: &mut DownloaderState) -> Result<VecDeque<Me
             for p in newly_filled {
                 let expected_hash = dstate.info.piece_hashes[p as usize].clone();
                 println!("filled piece: {}", p);
-                if dstate.datastore.verify_piece(p, expected_hash)? {
-                    println!("verified piece: {}", p);
-                    dstate.manifest.manifest.mark_verified(p)?;
+                if let Some(verified) = dstate.datastore.verify_piece(p, expected_hash)? {
+                    println!("verified piece: {}", verified.piece);
+                    dstate.manifest.manifest.mark_verified(verified)?;
                 } else {
                     println!("flunked piece: {}", p);
                     dstate.manifest.manifest.remove_piece(p)?;
@@ -230,9 +230,9 @@ fn single_step(msg: Message, dstate: &mut DownloaderState) -> Result<VecDeque<Me
                 for piece in dstate.manifest.manifest.needs_verify() {
                     let expected_hash = dstate.info.piece_hashes[piece as usize].clone();
                     println!("verifying piece: {}", piece);
-                    if dstate.datastore.verify_piece(piece, expected_hash)? {
-                        println!("verified piece: {}", piece);
-                        dstate.manifest.manifest.mark_verified(piece)?;
+                    if let Some(verified) = dstate.datastore.verify_piece(piece, expected_hash)? {
+                        println!("verified piece: {}", verified.piece);
+                        dstate.manifest.manifest.mark_verified(verified)?;
                     } else {
                         println!("flunked piece: {}", piece);
                         dstate.manifest.manifest.remove_piece(piece)?;
@@ -244,7 +244,7 @@ fn single_step(msg: Message, dstate: &mut DownloaderState) -> Result<VecDeque<Me
                     println!("all pieces verified!");
                     return Err(Error::todo());
                 }
-            },
+            }
             Some(desire) => {
                 let out = Message::Request {
                     piece: desire.piece,
