@@ -225,7 +225,26 @@ fn single_step(msg: Message, dstate: &mut DownloaderState) -> Result<VecDeque<Me
     }
     if !dstate.blah_state.waiting && !dstate.peer_state.peer_choking && dstate.peer_state.am_interested {
         match dstate.manifest.manifest.next_desired_block() {
-            None => return Err(Error::todo()),
+            None => {
+                // No more blocks needed! Unless something fails verification.
+                for piece in dstate.manifest.manifest.needs_verify() {
+                    let expected_hash = dstate.info.piece_hashes[piece as usize].clone();
+                    println!("verifying piece: {}", piece);
+                    if dstate.datastore.verify_piece(piece, expected_hash)? {
+                        println!("verified piece: {}", piece);
+                        dstate.manifest.manifest.mark_verified(piece)?;
+                    } else {
+                        println!("flunked piece: {}", piece);
+                        dstate.manifest.manifest.remove_piece(piece)?;
+                    }
+                }
+                dstate.manifest.store()?;
+
+                if dstate.manifest.manifest.all_verified() {
+                    println!("all pieces verified!");
+                    return Err(Error::todo());
+                }
+            },
             Some(desire) => {
                 let out = Message::Request {
                     piece: desire.piece,

@@ -129,6 +129,16 @@ impl Manifest {
         Ok(self.present[piece as usize].is_full())
     }
 
+    /// List of pieces that still need to be verified.
+    pub fn needs_verify(&self) -> Vec<u64> {
+        self.verified.iter().enumerate().filter(|&(_i, v)| !v).map(|(i, _v)| i as u64).collect()
+    }
+
+    /// Whether all data has been verified.
+    pub fn all_verified(&self) -> bool {
+        return self.needs_verify().len() == 0;
+    }
+
     /// Get the next desired block.
     /// This is the first block that has not been added.
     pub fn next_desired_block(&self) -> Option<BlockRequest> {
