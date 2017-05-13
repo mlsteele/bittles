@@ -63,7 +63,9 @@ impl Manifest {
     /// Record the addition of a block.
     /// Can span multiple pieces.
     /// Returns an error if it dives off the end of the file.
-    pub fn add_block(&mut self, piece: u64, offset: u64, length: u64) -> Result<()> {
+    /// Returns a list of pieces newly filled.
+    pub fn add_block(&mut self, piece: u64, offset: u64, length: u64) -> Result<Vec<u64>> {
+        let mut newly_filled: Vec<u64> = Vec::new();
         // TODO get back and verify this. Make a test.
 
         // println!("add_block({}, {}, {}) to {:?}", piece, offset, length, self);
@@ -77,12 +79,20 @@ impl Manifest {
         // Fill the first piece
         {
             // println!("\tWill add interval from {} to {}", offset, )
-            self.present[piece as usize].add(offset,
+            let nf = self.present[piece as usize].add(offset,
                      cmp::min(offset + length, self.size_info.piece_size(piece)))?;
+            if nf {
+                newly_filled.push(piece)
+            }
         }
         // Fill the in-between pieces
         for i in piece + 1..last_piece {
-            self.present[i as usize].fill();
+            let p = &mut self.present[i as usize];
+            let nf = !p.is_full();
+            p.fill();
+            if nf {
+                newly_filled.push(i)
+            }
         }
         // Fill the last piece
         if last_piece != piece {
@@ -92,9 +102,12 @@ impl Manifest {
                 let absolute_end = self.size_info.absolute_offset(piece, offset + length);
                 absolute_end - last_piece_start
             };
-            self.present[last_piece as usize].add(0, local_end)?;
+            let nf = self.present[last_piece as usize].add(0, local_end)?;
+            if nf {
+                newly_filled.push(last_piece)
+            }
         }
-        Ok(())
+        Ok(newly_filled)
     }
 
     /// Remove a piece

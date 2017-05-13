@@ -154,7 +154,7 @@ fn loop_step(lstate: LoopState) -> BxFuture<future::Loop<String, LoopState>, Err
 }
 
 /// One synchronous step.
-/// Returns a message to send.
+/// Returns messages to send.
 fn single_step(msg: Message, dstate: &mut DownloaderState) -> Result<VecDeque<Message>> {
     let mut outs = VecDeque::new();
     println!("recv message {}: {}",
@@ -193,7 +193,19 @@ fn single_step(msg: Message, dstate: &mut DownloaderState) -> Result<VecDeque<Me
         }
         Message::Piece { piece, offset, block } => {
             dstate.datastore.write_block(piece as u64, offset as u64, &block)?;
-            dstate.manifest.manifest.add_block(piece as u64, offset as u64, block.len() as u64)?;
+            let newly_filled = dstate.manifest.manifest.add_block(piece as u64, offset as u64, block.len() as u64)?;
+            for p in newly_filled {
+                let expected_hash = dstate.info.piece_hashes[p as usize].clone();
+                println!("filled piece: {}", p);
+                if dstate.datastore.verify_piece(p, expected_hash)? {
+                    println!("verified piece: {}", p);
+                    dstate.manifest.manifest.mark_verified(p)?;
+                } else {
+                    println!("flunked piece: {}", p);
+                    dstate.manifest.manifest.remove_piece(p)?;
+                }
+            }
+
             dstate.manifest.store()?;
             dstate.blah_state.waiting = false;
         }

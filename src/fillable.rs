@@ -36,7 +36,14 @@ impl Fillable {
     }
 
     /// Fill the range [a, b)
-    pub fn add(&mut self, a: u64, b: u64) -> Result<()> {
+    /// Returns whether this piece is _newly_ filled.
+    pub fn add(&mut self, a: u64, b: u64) -> Result<bool> {
+        let already_full = self.is_full();
+        self.add_helper(a, b)?;
+        Ok(self.is_full() && !already_full)
+    }
+
+    fn add_helper(&mut self, a: u64, b: u64) -> Result<()> {
         // println!("\tadd({}, {}) to {:?}", a, b, self);
         let mut place = 0;
         let mut found = false;
