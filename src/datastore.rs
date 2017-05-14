@@ -1,4 +1,4 @@
-use error::{Error, Result};
+use errors::*;
 use metainfo::{MetaInfo, SizeInfo, PieceHash};
 use ring::digest;
 use std::fs;
@@ -23,7 +23,7 @@ impl DataStore {
             .create(true)
             .truncate(false)
             .open(path)
-            .map_err(|e| Error::annotate(e, "datastore file could not be opened"))?;
+            .chain_err(|| "datastore file could not be opened")?;
         f.set_len(metainfo.size_info.total_size())?;
         Ok(DataStore {
             file: f,

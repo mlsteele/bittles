@@ -8,7 +8,7 @@ use tokio_io::{AsyncWrite, AsyncRead};
 use futures::future::{Future, BoxFuture};
 use futures::future;
 
-use error::{Error, Result};
+use errors::{Error, Result};
 use itertools::Itertools;
 use metainfo::INFO_HASH_SIZE;
 use metainfo::InfoHash;
@@ -87,8 +87,8 @@ impl BitTorrentPeerCodec {
                 1 => Ok(Unchoke),
                 2 => Ok(Interested),
                 3 => Ok(NotInterested),
-                4 | 5 | 6 | 7 | 8 | 9 => Err(Error::new_peer(&format!("message id {} specified no body", message_id))),
-                _ => Err(Error::new_peer(&format!("unknown message id {} (no-body)", message_id))),
+                4 | 5 | 6 | 7 | 8 | 9 => bail!("message id {} specified no body", message_id),
+                _ => bail!("unknown message id {} (no-body)", message_id),
             };
         }
 
@@ -96,10 +96,10 @@ impl BitTorrentPeerCodec {
 
         match message_id {
             0 | 1 | 2 | 3 => // Choke; Unchoke; Interested; NotInterested
-                Err(Error::new_peer(&format!("message id {} specified non-zero body {}", message_id, body_length))),
+                bail!("message id {} specified non-zero body {}", message_id, body_length),
             4 => { // Message::Have
                 if body_length != NUM_LEN {
-                    return Err(Error::new_peer(&format!("message wrong size 'Have' {} != 4", body_length)));
+                    bail!("message wrong size 'Have' {} != 4", body_length);
                 }
                 Ok(Have {
                     piece: src.get_u32::<BE>()
@@ -116,7 +116,7 @@ impl BitTorrentPeerCodec {
             },
             6 => { // Message::Request
                 if body_length != NUM_LEN * 3 {
-                    return Err(Error::new_peer(&format!("message wrong size 'Request' {} != 12", body_length)));
+                    bail!("message wrong size 'Request' {} != 12", body_length);
                 }
                 Ok(Request {
                     piece: src.get_u32::<BE>(),
@@ -126,7 +126,7 @@ impl BitTorrentPeerCodec {
             },
             7 => { // Message::Piece
                 if body_length < NUM_LEN * 2 {
-                    return Err(Error::new_peer(&format!("message wrong size 'Piece' {} < 8", body_length)));
+                    bail!("message wrong size 'Piece' {} < 8", body_length);
                 }
                 let piece = src.get_u32::<BE>();
                 let offset = src.get_u32::<BE>();
@@ -139,7 +139,7 @@ impl BitTorrentPeerCodec {
             },
             8 => { // Message::Cancel
                 if body_length != NUM_LEN * 3 {
-                    return Err(Error::new_peer(&format!("message wrong size 'Cancel' {} != 12", body_length)));
+                    bail!("message wrong size 'Cancel' {} != 12", body_length);
                 }
                 Ok(Cancel {
                     piece: src.get_u32::<BE>(),
@@ -149,13 +149,13 @@ impl BitTorrentPeerCodec {
             },
             9 => { // Message::Port
                 if body_length != NUM_LEN {
-                    return Err(Error::new_peer(&format!("message wrong size 'Port' {} != 4", body_length)));
+                    bail!("message wrong size 'Port' {} != 4", body_length);
                 }
                 Ok(Port {
                     port: src.get_u32::<BE>(),
                 })
             },
-            _ => Err(Error::new_peer(&format!("unknown message id {} (+body)", message_id))),
+            _ => bail!("unknown message id {} (+body)", message_id),
         }
     }
 }
@@ -223,10 +223,10 @@ impl tokio_io::codec::Encoder for BitTorrentPeerCodec {
                 // let msg: [u8] = bits.chunks(8).map(|bb| bits_to_byte(bb)).collect();
                 // send_message_frame(stream, message_id, &msg)?;
                 let _ = bits;
-                Err(Error::new_str(&format!("send_message not implemented for id {}", message_id)))?;
+                bail!("send_message not implemented for id {}", message_id);
             }
             _ => {
-                Err(Error::new_str(&format!("send_message not implemented for id {}", message_id)))?;
+                bail!("send_message not implemented for id {}", message_id);
             }
         }
         Ok(())

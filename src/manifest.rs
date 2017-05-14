@@ -1,4 +1,4 @@
-use error::{Error, Result};
+use errors::*;
 use serde_cbor;
 use std::cmp;
 use std::fmt;
@@ -53,10 +53,10 @@ impl Manifest {
     /// Sanity check the after a load.
     fn check(&self) -> Result<()> {
         if self.verified.len() as u64 != self.size_info.num_pieces() {
-            return Err(Error::new_str("wrong sized verified list"));
+            bail!("wrong sized verified list");
         }
         if self.present.len() as u64 != self.size_info.num_pieces() {
-            return Err(Error::new_str("wrong sized present list"));
+            bail!("wrong sized present list");
         }
         Ok(())
     }
@@ -241,7 +241,7 @@ impl ManifestWithFile {
         let f = fs::File::open(&path)?;
         let manifest: Manifest = serde_cbor::de::from_reader(f)?;
         if manifest.info_hash != info.info_hash {
-            return Err(Error::new_str(&"loaded mismatched manifest info hash"));
+            bail!("loaded mismatched manifest info hash");
         }
         manifest.check()?;
         Ok(Self {
@@ -256,7 +256,7 @@ impl ManifestWithFile {
             let mut fname: String = self.path
                 .file_name()
                 .and_then(|x| x.to_str())
-                .ok_or(Error::new_str("missing file name"))?
+                .ok_or("missing file name")?
                 .to_owned();
             fname.push_str(".swp");
             self.path.with_file_name(fname)

@@ -19,7 +19,7 @@ use tokio_core::net::TcpStream;
 use tokio_core::reactor;
 use url::form_urlencoded;
 
-use error::Result;
+use errors::Result;
 
 fn encode(x: &[u8]) -> String {
     // percent_encode(x, QUERY_ENCODE_SET).collect::<String>()
@@ -206,14 +206,21 @@ pub fn tcp_connect<T>(addr: T, timeout: Duration) -> io::Result<std::net::TcpStr
 
 /// Make a tcp connection with a timeout.
 /// Uses futures.
-pub fn tcp_connect2(addr: &SocketAddr, timeout: Duration, handle: &reactor::Handle) -> Box<Future<Item = Option<TcpStream>, Error = io::Error>> {
-    let timeout = reactor::Timeout::new(timeout, handle).expect("tcp_connect2: could not create timeout");
-    let timeout = timeout.map(|_| None::<TcpStream>);
-    let stream = TcpStream::connect(addr, handle).map(|x| Some(x));
-    timeout.select(stream)
-        .map(|(v, _)| v)
-        .map_err(|(e, _)| e)
-        .boxed()
+pub fn tcp_connect2(addr: &SocketAddr, timeout: Duration, handle: &reactor::Handle) -> BxFuture<TcpStream, io::Error> {
+    match reactor::Timeout::new(timeout, handle) {
+        Err(e) => future::err(e).bxed(),
+        Ok(timeout) => {
+            let timeout = timeout.map(|_| io::Error::new(io::ErrorKind::TimedOut, "timeout in tcp connection"));
+            let stream = TcpStream::connect(addr, handle);
+            use futures::future::Either;
+            stream.select2(timeout).then(|res| match res {
+                Ok(Either::A((stream, _))) => Ok(stream),
+                Ok(Either::B((timeout, _))) => Err(timeout),
+                Err(Either::A((err, _))) => Err(err),
+                Err(Either::B((err, _))) => Err(err),
+            }).bxed()
+        }
+    }
 }
 
 pub fn write_atomic<P1, P2, F>(final_path: P1, temp_path: P2, write: F) -> Result<()>
@@ -231,6 +238,7 @@ pub fn write_atomic<P1, P2, F>(final_path: P1, temp_path: P2, write: F) -> Resul
 }
 
 /// A convenient alias like BoxFuture but _without_ Send.
+/// While we wait for impl trait :)
 pub type BxFuture<T, E> = Box<Future<Item = T, Error = E>>;
 
 pub trait FutureEnhanced<T, E> {

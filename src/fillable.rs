@@ -1,4 +1,4 @@
-use error::{Error, Result};
+use errors::*;
 use std::cmp;
 
 /// Fillable is a range from [0,size) that can be filled by subranges.
@@ -137,10 +137,8 @@ impl Fillable {
                 }
                 if let Some(l) = last {
                     if l.end >= i.start {
-                        res = Err(Error::new_str(&format!("Interval starting at {} cannot follow interval ending at {}",
-                                                          i.start,
-                                                          l.end)));
-                        break;
+                        bail!("Interval starting at {} cannot follow interval ending at {}",
+                              i.start, l.end);
                     }
                 }
                 last = Some(i)
@@ -162,7 +160,7 @@ impl Interval {
     }
     fn check_rep(&self) -> Result<()> {
         match self.start < self.end {
-            false => Err(Error::new_str(&format!("Invalid interval ({}, {})", self.start, self.end))),
+            false => bail!("Invalid interval ({}, {})", self.start, self.end),
             true => Ok(()),
         }
     }

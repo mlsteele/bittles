@@ -1,5 +1,5 @@
 use bip_bencode::{BencodeRef, BRefAccess, BDictAccess};
-use error::{Error, Result};
+use errors::*;
 use ring::digest;
 use std::fmt;
 use std::str;
@@ -111,7 +111,7 @@ impl MetaInfo {
             .int()
             .ok_or_err("'piece length' not an int")? as u32;
         if piece_length <= 0 {
-            return Err(Error::new_str(&format!("piece_length {} < 0", piece_length)));
+            bail!("piece_length {} < 0", piece_length);
         }
 
         // concatenation of each piece hash
@@ -120,9 +120,9 @@ impl MetaInfo {
             .bytes()
             .ok_or_err("'piece' not bytes")?;
         if pieces_hashes_concat.len() % PIECE_HASH_SIZE != 0 {
-            return Err(Error::new_str(&format!("piece hashes length {} not divisible by {}",
-                                               pieces_hashes_concat.len(),
-                                               PIECE_HASH_SIZE)));
+            bail!("piece hashes length {} not divisible by {}",
+                  pieces_hashes_concat.len(),
+                  PIECE_HASH_SIZE);
         }
         let piece_hashes = pieces_hashes_concat.chunks(PIECE_HASH_SIZE)
             .map(|a| {
@@ -155,13 +155,13 @@ impl MetaInfo {
         };
 
         if ((res.num_pieces() as u64) * res.size_info.leader_piece_length as u64) < res.file_info.total_size() {
-            return Err(Error::new_str("pieces and total size don't match"));
+            bail!("pieces and total size don't match");
         }
         if ((res.num_pieces() as u64 - 1) * res.size_info.leader_piece_length as u64) > res.file_info.total_size() {
-            return Err(Error::new_str("pieces and total size don't match"));
+            bail!("pieces and total size don't match");
         }
         if res.size_info.total_size() != res.file_info.total_size() {
-            return Err(Error::new_str("file_info and size_info disagree on size"));
+            bail!("file_info and size_info disagree on size");
         }
 
         Ok(res)
@@ -241,14 +241,14 @@ impl SizeInfo {
     pub fn check_piece(&self, piece: u64) -> Result<()> {
         match piece < self.num_pieces {
             true => Ok(()),
-            false => Err(Error::new_str(&format!("piece out of bounds !({} < {})", piece, self.num_pieces))),
+            false => bail!("piece out of bounds !({} < {})", piece, self.num_pieces),
         }
     }
 
     /// Check that a point falls inside the bounds.
     pub fn check_point(&self, piece: u64, offset: u64) -> Result<()> {
         if self.absolute_offset(piece, offset) >= self.total_size {
-            Err(Error::new_str(&format!("point out of bounds {} {}", piece, offset)))
+            bail!("point out of bounds {} {}", piece, offset);
         } else {
             Ok(())
         }
@@ -257,7 +257,7 @@ impl SizeInfo {
     /// Check that the range range falls inside the bounds.
     pub fn check_range(&self, piece: u64, offset: u64, length: u64) -> Result<()> {
         if self.absolute_offset(piece, offset + length) > self.total_size {
-            Err(Error::new_str(&format!("range out of bounds {} {} {}", piece, offset, length)))
+            bail!("range out of bounds {} {} {}", piece, offset, length);
         } else {
             Ok(())
         }
@@ -272,7 +272,7 @@ impl<T> ExtendedOption<T> for Option<T> {
     fn ok_or_err(self, description: &str) -> Result<T> {
         match self {
             Some(v) => Ok(v),
-            None => Err(Error::new_str(description)),
+            None => bail!("{}", description),
         }
     }
 }

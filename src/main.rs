@@ -1,8 +1,13 @@
 #![allow(dead_code)]
 
+// `error_chain!` can recurse deeply
+#![recursion_limit = "1024"]
+
 extern crate bip_bencode;
 extern crate byteorder;
 extern crate docopt;
+#[macro_use]
+extern crate error_chain;
 extern crate hyper;
 extern crate itertools;
 extern crate ring;
@@ -19,7 +24,7 @@ extern crate bytes;
 
 mod downloader;
 mod datastore;
-mod error;
+mod errors;
 mod metainfo;
 mod manifest;
 mod tracker;
@@ -30,17 +35,15 @@ mod fillable;
 
 use bip_bencode::{BencodeRef, BDecodeOpt};
 use docopt::Docopt;
-use itertools::Itertools;
 use ring::rand::SystemRandom;
-use std::error::Error;
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
 
-use peer_protocol::PeerID;
-use metainfo::*;
+use errors::*;
 use manifest::*;
-use util::{replace_query_parameters, QueryParameters};
+use metainfo::*;
+use peer_protocol::PeerID;
 
 const USAGE: &'static str = "
 Usage: bittles <torrent>
@@ -52,100 +55,44 @@ struct Args {
 }
 
 fn main() {
-    match inner() {
-        Ok(_) => {}
-        Err(e) => println!("ERROR: {}", e),
-    }
-}
+    if let Err(ref e) = inner() {
+        use std::io::Write;
+        let stderr = &mut ::std::io::stderr();
+        let errmsg = "Error writing to stderr";
 
-#[allow(dead_code)]
-fn inner2() -> Result<(), Box<Error>> {
-    let x: [u8; 20] = [18, 52, 86, 120, 154, 188, 222, 241, 35, 69, 103, 137, 171, 205, 239, 18, 52, 86, 120, 154];
-    let y = format!("{:x}", x.iter().format(""));
-    println!("hex: {}", y);
+        writeln!(stderr, "error: {}", e).expect(errmsg);
 
-    let z = url::percent_encoding::percent_encode(&x, url::percent_encoding::QUERY_ENCODE_SET).collect::<String>();
-    println!("url encoded: {}", z);
-
-    assert_eq!("%124Vx%9A%BC%DE%F1%23Eg%89%AB%CD%EF%124Vx%9A", z);
-
-    {
-        let mut url = hyper::Url::parse("http://example.com/announce")?;
-        {
-            let mut qp = url.query_pairs_mut();
-            qp.clear();
-            // qp.append_pair("info_hash", "asdlfkjskd\u{00cc}f");
-            qp.append_pair("info_hash", &z);
+        for e in e.iter().skip(1) {
+            writeln!(stderr, "caused by: {}", e).expect(errmsg);
         }
 
-        println!("url qpm: {:?}", url);
-    }
+        // The backtrace is not always generated.
+        // Run with `RUST_BACKTRACE=1`
+        if let Some(backtrace) = e.backtrace() {
+            writeln!(stderr, "backtrace: {:?}", backtrace).expect(errmsg);
+        } else {
+            writeln!(stderr, "backtrace: [no backtrace, run with RUST_BACKTRACE=1]").expect(errmsg);
+        }
 
-    {
-        let mut url = hyper::Url::parse("http://example.com/announce")?;
-        url.set_query(Some(&format!("info_hash={}", z)));
-        println!("url s-q: {:?}", url);
+        ::std::process::exit(1);
     }
-
-    {
-        let mut url = hyper::Url::parse("http://example.com/announce")?;
-        replace_query_parameters(&mut url, &[("info_hash", x)]);
-        println!("url uuz: {:?}", url);
-    }
-
-    {
-        let mut url = hyper::Url::parse("http://example.com/announce")?;
-        let mut qps = QueryParameters::new();
-        qps.push("info_hash", x);
-        qps.apply(&mut url);
-        println!("url uub: {:?}", url);
-    }
-
-    Ok(())
 }
 
-#[allow(dead_code)]
-fn inner3() -> Result<(), Box<Error>> {
-    // ubuntu info hash
-    let x: [u8; 20] = [52, 147, 6, 116, 239, 59, 185, 49, 127, 181, 242, 99, 204, 168, 48, 245, 38, 133, 35, 91];
-    let y = format!("{:x}", x.iter().format(""));
-    println!("hex: {}", y);
-
-    let reference = "4%93%06t%EF%3B%B91%7F%B5%F2c%CC%A80%F5%26%85%23%5B";
-
-    // let z = url::percent_encoding::percent_encode(&x, url::percent_encoding::QUERY_ENCODE_SET).collect::<String>();
-    let z = url::form_urlencoded::byte_serialize(&x).collect::<String>();
-    println!("        ref: {}", reference);
-    println!("url encoded: {}", z);
-
-    assert_eq!(reference, z);
-
-    {
-        let mut url = hyper::Url::parse("http://example.com/announce")?;
-        let mut qps = QueryParameters::new();
-        qps.push("info_hash", x);
-        qps.apply(&mut url);
-        println!("url uub: {:?}", url);
-    }
-
-    Ok(())
-}
-
-fn inner() -> Result<(), Box<Error>> {
+fn inner() -> Result<()> {
     let args: Args = Docopt::new(USAGE)
         .and_then(|d| d.decode())
         .unwrap_or_else(|e| e.exit());
 
-    let cwd = std::env::current_dir()?;
+    let cwd = std::env::current_dir().chain_err(|| "get cwd")?;
     println!("cwd: {}", cwd.display());
     println!("torrent: {}", args.arg_torrent);
 
     let torrent_path = Path::new(&args.arg_torrent);
     let mut buf = vec![0;0];
-    let mut f = File::open(torrent_path)?;
+    let mut f = File::open(torrent_path).chain_err(|| "open torrent file")?;
     f.read_to_end(&mut buf).unwrap();
 
-    let res = BencodeRef::decode(buf.as_slice(), BDecodeOpt::default())?;
+    let res = BencodeRef::decode(buf.as_slice(), BDecodeOpt::default()).chain_err(|| "decode torrent")?;
 
     let info = MetaInfo::new(res)?;
     println!("{}", info);

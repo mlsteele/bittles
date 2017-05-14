@@ -1,6 +1,6 @@
 use bip_bencode::{BencodeRef, BDecodeOpt, BRefAccess, BDictAccess};
 use byteorder::{ByteOrder, BigEndian};
-use error::{Error, Result};
+use errors::*;
 use hyper::Url;
 use hyper;
 use metainfo::*;
@@ -109,38 +109,38 @@ impl TrackerClient {
 
     fn parse_res(&self, http_res: &mut hyper::client::response::Response) -> Result<TrackerResponse> {
         if http_res.status != hyper::status::StatusCode::Ok {
-            return Err(Error::new_str(&format!("tracker returned non-200: {}", http_res.status)));
+            bail!("tracker returned non-200: {}", http_res.status);
         }
         let mut buf = Vec::new();
         http_res.read_to_end(&mut buf)?;
         let b = BencodeRef::decode(buf.as_slice(), BDecodeOpt::default())?;
-        let bd = b.dict().ok_or(Error::new_str("response bencoding not a dict"))?;
+        let bd = b.dict().ok_or("response bencoding not a dict")?;
         Ok(TrackerResponse {
             failure_reason: lookup_str(bd, "failure reason".as_bytes())?,
             warning_message: lookup_str(bd, "warning message".as_bytes())?,
             interval: lookup_i64(bd, "interval".as_bytes())?
-                .ok_or(Error::new_str("missing 'interval'"))?,
+                .ok_or("missing 'interval'")?,
             min_interval: lookup_i64(bd, "min interval".as_bytes())?,
             tracker_id: lookup_str(bd, "tracker id".as_bytes())?,
             complete: lookup_i64(bd, "complete".as_bytes())?
-                .ok_or(Error::new_str("missing 'complete'"))?,
+                .ok_or("missing 'complete'")?,
             incomplete: lookup_i64(bd, "incomplete".as_bytes())?
-                .ok_or(Error::new_str("missing 'incomplete'"))?,
+                .ok_or("missing 'incomplete'")?,
             peers: self.parse_peers(bd)?, // TODO
         })
     }
 
     /// Parse the peers list from a complete tracker response bdict.
     fn parse_peers(&self, bd: &BDictAccess<BencodeRef>) -> Result<Vec<Peer>> {
-        let peers = bd.lookup("peers".as_bytes()).ok_or(Error::new_str("missing 'peers'"))?;
+        let peers = bd.lookup("peers".as_bytes()).ok_or("missing 'peers'")?;
         if let Some(_) = peers.dict() {
-            return Err(Error::new_str("Reading peers as 'dict' not implemented"));
+            bail!("Reading peers as 'dict' not implemented");
         }
         if let Some(_) = peers.str() {
-            return Err(Error::new_str("Reading peers as 'str' not implemented"));
+            bail!("Reading peers as 'str' not implemented");
         }
         if let Some(_) = peers.list() {
-            return Err(Error::new_str("Reading peers as 'list' not implemented"));
+            bail!("Reading peers as 'list' not implemented");
         }
         if let Some(peers) = peers.bytes() {
             // peers: (binary model)
@@ -148,7 +148,7 @@ impl TrackerClient {
             // First 4 bytes are the IP address and last 2 bytes are the port number.
             // All in network (big endian) notation.
             if peers.len() % 6 != 0 {
-                return Err(Error::new_str("Peers 'byte' representation not 6*n bytes"));
+                bail!("Peers 'byte' representation not 6*n bytes");
             }
             return Ok(peers.chunks(6)
                 .map(|chunk| {
@@ -162,7 +162,7 @@ impl TrackerClient {
                 })
                 .collect());
         }
-        Err(Error::new_str(&format!("wrong type for 'peers': {:?}", peers)))
+        bail!("wrong type for 'peers': {:?}", peers);
     }
 }
 
@@ -171,7 +171,7 @@ fn lookup_str<'a>(dict: &'a BDictAccess<BencodeRef>, key: &'a [u8]) -> Result<Op
         Some(x) => {
             match x.str() {
                 Some(x) => Ok(Some(x.to_owned())),
-                None => Err(Error::new_str(&format!("'{:?}' exists but is not a utf8 string", key))),
+                None => bail!("'{:?}' exists but is not a utf8 string", key),
             }
         }
         None => Ok(None),
@@ -183,7 +183,7 @@ fn lookup_i64<'a>(dict: &'a BDictAccess<BencodeRef>, key: &'a [u8]) -> Result<Op
         Some(x) => {
             match x.int() {
                 Some(x) => Ok(Some(x)),
-                None => Err(Error::new_str(&format!("'{:?}' exists but is not an int", key))),
+                None => bail!("'{:?}' exists but is not an int", key),
             }
         }
         None => Ok(None),
