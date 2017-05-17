@@ -121,37 +121,6 @@ fn connect_peer(addr: SocketAddr, info_hash: InfoHash, peer_id: PeerID, handle: 
         .bxed()
 }
 
-// /// One step of the main loop.
-// fn loop_step(lstate: LoopState) -> BxFuture<future::Loop<String, LoopState>, Error> {
-//     use futures::future::Loop::{Break, Continue};
-//     let (stream, mut dstate) = lstate;
-//     // Note: There are many `bxed` calls in here because match arms must return the same type.
-//     // And the long long types produced by future chaining are not equivalent.
-//     // So the boxing turns them into trait objects implementing the same specified Future.
-//     stream.into_future()
-//         .map_err(|(err, _stream)| err)
-//         .and_then(move |(omsg, stream)| {
-//             match omsg {
-//                 None => future::ok(Break("event stream ended".to_owned())).bxed(),
-//                 Some(msg) => {
-//                     match handle_peer_message(msg, &mut dstate) {
-//                         Err(err) => future::err(err).bxed(),
-//                         Ok(outs) => {
-//                             let n_outs = outs.len();
-//                             stream.send_all(VecDequeStream::<Message, Error>::new(outs))
-//                                 .map(move |(stream, _)| {
-//                                     println!("sent {}", n_outs);
-//                                     Continue((stream, dstate))
-//                                 })
-//                                 .bxed()
-//                         }
-//                     }
-//                 }
-//             }
-//         })
-//         .bxed()
-// }
-
 enum HandlePeerMessageRes {
     Pass,
     Reply(VecDeque<Message>),
