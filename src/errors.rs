@@ -1,5 +1,5 @@
-use std;
 use futures::future::Future;
+use std;
 
 mod errors_gen {
     // Create the Error, ErrorKind, ResultExt, and Result types

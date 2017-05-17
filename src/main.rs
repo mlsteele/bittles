@@ -33,17 +33,16 @@ mod util;
 mod peer_protocol;
 mod fillable;
 
-use bip_bencode::{BencodeRef, BDecodeOpt};
+use bip_bencode::{BDecodeOpt, BencodeRef};
 use docopt::Docopt;
-use ring::rand::SystemRandom;
-use std::fs::File;
-use std::io::prelude::*;
-use std::path::Path;
-
 use errors::*;
 use manifest::*;
 use metainfo::*;
 use peer_protocol::PeerID;
+use ring::rand::SystemRandom;
+use std::fs::File;
+use std::io::prelude::*;
+use std::path::Path;
 
 const USAGE: &'static str = "
 Usage: bittles <torrent>

@@ -1,12 +1,14 @@
-use byteorder::{ByteOrder, BigEndian};
-use bytes::{BytesMut, BufMut};
-use futures::future::Future;
+use byteorder::{BigEndian, ByteOrder};
+use bytes::{BufMut, BytesMut};
+use errors::Result;
+use futures::{Poll, Stream};
 use futures::future;
-use futures::{Stream, Poll};
+use futures::future::Future;
 use hyper::Url;
+use std;
 use std::collections::vec_deque::VecDeque;
-use std::fs::File;
 use std::fs;
+use std::fs::File;
 use std::io;
 use std::marker::Send;
 use std::net::SocketAddr;
@@ -14,12 +16,9 @@ use std::path::Path;
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
-use std;
 use tokio_core::net::TcpStream;
 use tokio_core::reactor;
 use url::form_urlencoded;
-
-use errors::Result;
 
 fn encode(x: &[u8]) -> String {
     // percent_encode(x, QUERY_ENCODE_SET).collect::<String>()

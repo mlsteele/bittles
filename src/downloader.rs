@@ -1,30 +1,29 @@
+use datastore::DataStore;
+use errors::*;
+use fillable::*;
 use futures;
-use futures::future::Future;
+use futures::{Sink, Stream};
 use futures::future;
-use futures::{Stream, Sink};
+use futures::future::Future;
+use manifest::ManifestWithFile;
+use metainfo::{InfoHash, MetaInfo};
+use peer_protocol;
+use peer_protocol::{BitTorrentPeerCodec, Message, PeerID};
 use std::cmp;
 use std::collections::vec_deque::VecDeque;
 use std::default::Default;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::AtomicUsize;
 use std::time::Duration;
 use tokio_core::net::TcpStream;
 use tokio_core::reactor;
 use tokio_core::reactor::Handle;
 use tokio_io::AsyncRead;
 use tokio_io::codec::Framed;
-use std::sync::atomic::AtomicUsize;
-
-use datastore::DataStore;
-use errors::*;
-use fillable::*;
-use manifest::ManifestWithFile;
-use metainfo::{MetaInfo, InfoHash};
-use peer_protocol::{PeerID, Message, BitTorrentPeerCodec};
-use peer_protocol;
 use tracker::TrackerClient;
-use util::{tcp_connect2, BxFuture, FutureEnhanced, VecDequeStream, mkdirp_for_file};
+use util::{BxFuture, FutureEnhanced, VecDequeStream, mkdirp_for_file, tcp_connect2};
 
 type PeerFramed = Framed<TcpStream, BitTorrentPeerCodec>;
 

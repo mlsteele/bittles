@@ -1,14 +1,14 @@
-use bip_bencode::{BencodeRef, BDecodeOpt, BRefAccess, BDictAccess};
-use byteorder::{ByteOrder, BigEndian};
+use bip_bencode::{BDecodeOpt, BDictAccess, BRefAccess, BencodeRef};
+use byteorder::{BigEndian, ByteOrder};
 use errors::*;
-use hyper::Url;
 use hyper;
+use hyper::Url;
 use metainfo::*;
+use peer_protocol::PeerID;
 use std::io::Read;
 use std::net;
 use std::time::Duration;
 use util::QueryParameters;
-use peer_protocol::PeerID;
 
 // Client to talk to a tracker
 #[derive(Debug)]

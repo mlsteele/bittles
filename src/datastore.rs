@@ -1,5 +1,5 @@
 use errors::*;
-use metainfo::{MetaInfo, SizeInfo, PieceHash};
+use metainfo::{MetaInfo, PieceHash, SizeInfo};
 use ring::digest;
 use std::fs;
 use std::io::{Seek, SeekFrom, Write};

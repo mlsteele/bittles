@@ -1,10 +1,10 @@
-use bip_bencode::{BencodeRef, BRefAccess, BDictAccess};
+use bip_bencode::{BDictAccess, BRefAccess, BencodeRef};
 use errors::*;
+use itertools::Itertools;
 use ring::digest;
+use std;
 use std::fmt;
 use std::str;
-use std;
-use itertools::Itertools;
 
 pub const INFO_HASH_SIZE: usize = 20;
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]

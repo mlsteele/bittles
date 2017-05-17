@@ -1,15 +1,14 @@
+use datastore::Verified;
 use errors::*;
+use fillable::*;
+use metainfo::*;
 use serde_cbor;
+use std;
 use std::cmp;
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std;
-
-use fillable::*;
-use metainfo::*;
 use util::write_atomic;
-use datastore::Verified;
 
 /// Manifest describes the state of what parts of a torrent have been downloaded and verified.
 /// A manifest is associated with a single torrent.

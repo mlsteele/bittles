@@ -1,17 +1,16 @@
-use byteorder::{ByteOrder, BigEndian};
-use ring::rand::SystemRandom;
-use std::fmt;
-use std;
-use bytes::{BytesMut, Buf};
-use tokio_io;
-use tokio_io::{AsyncWrite, AsyncRead};
-use futures::future::{Future, BoxFuture};
-use futures::future;
-
+use byteorder::{BigEndian, ByteOrder};
+use bytes::{Buf, BytesMut};
 use errors::{Error, Result};
+use futures::future;
+use futures::future::{BoxFuture, Future};
 use itertools::Itertools;
 use metainfo::INFO_HASH_SIZE;
 use metainfo::InfoHash;
+use ring::rand::SystemRandom;
+use std;
+use std::fmt;
+use tokio_io;
+use tokio_io::{AsyncRead, AsyncWrite};
 use util::byte_to_bits;
 
 pub const PEERID_SIZE: usize = 20;
