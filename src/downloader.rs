@@ -11,7 +11,7 @@ use peer_protocol;
 use peer_protocol::{BitTorrentPeerCodec, Message, PeerID};
 use slog::Logger;
 use std::cmp;
-use std::collections::vec_deque::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::default::Default;
 use std::net::SocketAddr;
 use std::path::Path;
@@ -35,8 +35,7 @@ struct DownloaderState {
     info: MetaInfo,
     datastore: DataStore,
     manifest: ManifestWithFile,
-    peer_state: PeerState,
-    blah_state: BlahState,
+    peer_states: HashMap<PeerNum, PeerState>,
     next_peer_num: AtomicUsize,
 }
 
@@ -55,7 +54,7 @@ pub fn start<P: AsRef<Path>>(log: Logger, info: MetaInfo, peer_id: PeerID, store
     let mut tc = TrackerClient::new(info.clone(), peer_id.clone())?;
 
     let tracker_res = tc.easy_start()?;
-    println!("tracker res: {:#?}", tracker_res);
+    debug!(log, "tracker res: {:#?}", tracker_res);
     if let Some(reason) = tracker_res.failure_reason {
         bail!("tracker failed: {}", reason);
     }
@@ -68,16 +67,16 @@ pub fn start<P: AsRef<Path>>(log: Logger, info: MetaInfo, peer_id: PeerID, store
     let info_hash = info.info_hash.clone();
 
     let n_start_peers = cmp::min(10, tracker_res.peers.len());
-    println!("using {}/{} available peers",
-             n_start_peers,
-             tracker_res.peers.len());
+    debug!(log,
+           "using {}/{} available peers",
+           n_start_peers,
+           tracker_res.peers.len());
 
     let dstate = DownloaderState {
         info: info,
         datastore: datastore,
         manifest: manifest,
-        peer_state: PeerState::new(num_pieces),
-        blah_state: BlahState::default(),
+        peer_states: HashMap::new(),
         next_peer_num: AtomicUsize::new(0),
     };
 
@@ -106,7 +105,31 @@ pub fn start<P: AsRef<Path>>(log: Logger, info: MetaInfo, peer_id: PeerID, store
                               error!(log, "could not connect to peer: {}", err);
                               future::ok(()).bxed()
                           }
-                          Ok((stream, remote_peer_id)) => drive_peer(&log, dstate_c, &handle, stream, peer_num, remote_peer_id),
+                          Ok((stream, remote_peer_id)) => {
+                              // Create peer state
+                              {
+                                  let mut dstate = dstate_c.lock().unwrap();
+                                  let x = dstate
+                                      .peer_states
+                                      .insert(peer_num, PeerState::new(num_pieces, remote_peer_id));
+                                  if x.is_some() {
+                                      warn!(log, "peer state already existed"; "peer_num" => peer_num)
+                                  }
+                              }
+
+                              let dstate_c2 = dstate_c.clone();
+                              drive_peer(&log, dstate_c, &handle, stream, peer_num)
+                                  .then(move |res| {
+                        let mut dstate = dstate_c2.lock().unwrap();
+                        let x = dstate.peer_states.remove(&peer_num);
+                        if x.is_none() {
+                            warn!(log,  "peer state was missing"; "peer_num" => peer_num)
+                        }
+
+                        res
+                    })
+                                  .bxed()
+                          }
                       })
                 .bxed();
         top_futures.push(f);
@@ -161,7 +184,7 @@ enum HandlePeerMessageRes {
     Close,
 }
 
-fn drive_peer(log: &Logger, dstate_c: AM<DownloaderState>, handle: &Handle, stream: PeerFramed, peer_num: PeerNum, remote_peer_id: PeerID) -> BxFuture<(), Error> {
+fn drive_peer(log: &Logger, dstate_c: AM<DownloaderState>, handle: &Handle, stream: PeerFramed, peer_num: PeerNum) -> BxFuture<(), Error> {
     let (peer_tx, peer_rx) = stream.split();
 
     // Separate send from receive so that the listener doesn't block all the time
@@ -189,45 +212,49 @@ fn drive_peer(log: &Logger, dstate_c: AM<DownloaderState>, handle: &Handle, stre
         where S: Stream<Item = Message, Error = Error>,
               U: Sink<SinkItem = Message, SinkError = Error>
     {
+        log: Logger,
         dstate_c: AM<DownloaderState>,
+        peer_num: PeerNum,
         peer_rx: S,
         peer_tx: U,
-        log: Logger,
     }
 
     let init = LoopState {
         log: log.clone(),
         dstate_c: dstate_c,
+        peer_num: peer_num,
         peer_rx: peer_rx,
         peer_tx: buf_tx.sink_map_err(|send_err| format!("error sending message: {}", send_err).into()),
     };
 
     use futures::future::Loop;
     future::loop_fn(init, |LoopState {
+                         log,
+                         peer_num,
                          dstate_c,
                          peer_rx,
                          peer_tx,
-                         log,
                      }|
      -> BxFuture<Loop<(), LoopState<_, _>>, Error> {
         peer_rx
             .into_future()
             .map_err(|(err, _stream)| err)
-            .and_then(|(item, peer_rx)| -> BxFuture<Loop<(), LoopState<_, _>>, Error> {
+            .and_then(move |(item, peer_rx)| -> BxFuture<Loop<(), LoopState<_, _>>, Error> {
                 match item {
                     Some(msg) => {
                         let cmd: Result<HandlePeerMessageRes> = {
                             let mut dstate = dstate_c.lock().unwrap();
-                            handle_peer_message(&log, &mut dstate, &msg)
+                            handle_peer_message(&log, &mut dstate, peer_num, &msg)
                         };
                         use self::HandlePeerMessageRes::*;
                         match cmd {
                             Ok(Pass) => {
                                 future::ok(Loop::Continue(LoopState {
+                                                              log,
                                                               dstate_c,
+                                                              peer_num,
                                                               peer_rx,
                                                               peer_tx,
-                                                              log,
                                                           }))
                                         .bxed()
                             }
@@ -235,13 +262,14 @@ fn drive_peer(log: &Logger, dstate_c: AM<DownloaderState>, handle: &Handle, stre
                                 peer_tx
                                     .send_all(VecDequeStream::<Message, Error>::new(outs))
                                     .map(move |(peer_tx, _)| {
-                                             Loop::Continue(LoopState {
-                                                                dstate_c,
-                                                                peer_rx,
-                                                                peer_tx,
-                                                                log,
-                                                            })
-                                         })
+                                        Loop::Continue(LoopState {
+                                                           log,
+                                                           dstate_c,
+                                                           peer_num,
+                                                           peer_rx,
+                                                           peer_tx,
+                                                       })
+                                    })
                                     .bxed()
                             }
                             Ok(Close) => {
@@ -267,20 +295,25 @@ fn drive_peer(log: &Logger, dstate_c: AM<DownloaderState>, handle: &Handle, stre
 
 /// One synchronous step.
 /// Returns messages to send.
-fn handle_peer_message(log: &Logger, dstate: &mut DownloaderState, msg: &Message) -> Result<HandlePeerMessageRes> {
+fn handle_peer_message(log: &Logger, dstate: &mut DownloaderState, peer_num: PeerNum, msg: &Message) -> Result<HandlePeerMessageRes> {
     use self::HandlePeerMessageRes::*;
+
+    let rstate = dstate
+        .peer_states
+        .get_mut(&peer_num)
+        .ok_or_else(|| Into::<Error>::into(format!("missing peer state: {}", peer_num).to_owned()))?;
 
     let mut outs = VecDeque::new();
     debug!(log, "recv message";
            "msg" => msg.summarize(),
-           "n" => dstate.blah_state.nreceived);
-    dstate.blah_state.nreceived += 1;
+           "n" => rstate.temp.nreceived);
+    rstate.temp.nreceived += 1;
     match msg {
         &Message::KeepAlive => {}
-        &Message::Choke => dstate.peer_state.peer_choking = true,
-        &Message::Unchoke => dstate.peer_state.peer_choking = false,
-        &Message::Interested => dstate.peer_state.peer_interested = true,
-        &Message::NotInterested => dstate.peer_state.peer_interested = false,
+        &Message::Choke => rstate.peer_choking = true,
+        &Message::Unchoke => rstate.peer_choking = false,
+        &Message::Interested => rstate.peer_interested = true,
+        &Message::NotInterested => rstate.peer_interested = false,
         &Message::Bitfield { ref bits } => {
             if bits.len() < dstate.info.num_pieces() {
                 bail!("bitfield has less bits {} than pieces {}",
@@ -294,19 +327,18 @@ fn handle_peer_message(log: &Logger, dstate: &mut DownloaderState, msg: &Message
                     i_start = b;
                     in_interval = true;
                 } else if !bits[b] && in_interval {
-                    dstate.peer_state.has.add(i_start as u64, b as u64)?;
+                    rstate.has.add(i_start as u64, b as u64)?;
                     in_interval = false;
                 }
             }
             if in_interval {
-                dstate
-                    .peer_state
+                rstate
                     .has
                     .add(i_start as u64, dstate.info.num_pieces() as u64)?;
             }
         }
         &Message::Have { piece } => {
-            dstate.peer_state.has.add(piece as u64, piece as u64 + 1)?;
+            rstate.has.add(piece as u64, piece as u64 + 1)?;
         }
         &Message::Request { .. } => {
             bail!("not implemented");
@@ -325,47 +357,47 @@ fn handle_peer_message(log: &Logger, dstate: &mut DownloaderState, msg: &Message
                 .add_block(piece as u64, offset as u64, block.len() as u64)?;
             for p in newly_filled {
                 let expected_hash = dstate.info.piece_hashes[p as usize].clone();
-                println!("filled piece: {}", p);
+                info!(log, "filled piece: {}", p);
                 if let Some(verified) = dstate.datastore.verify_piece(p, expected_hash)? {
-                    println!("verified piece: {}", verified.piece);
+                    info!(log, "verified piece: {}", verified.piece);
                     dstate.manifest.manifest.mark_verified(verified)?;
                 } else {
-                    println!("flunked piece: {}", p);
+                    info!(log, "flunked piece: {}", p);
                     dstate.manifest.manifest.remove_piece(p)?;
                 }
             }
 
             dstate.manifest.store(log)?;
-            dstate.blah_state.waiting = false;
+            rstate.temp.waiting = false;
         }
         &Message::Cancel { .. } => bail!("not implemented"),
         &Message::Port { .. } => {}
     }
 
-    if dstate.blah_state.nreceived >= 1 && dstate.peer_state.am_choking {
+    if rstate.temp.nreceived >= 1 && rstate.am_choking {
         let out = Message::Unchoke {};
         debug!(log, "sending message: {:?}", out);
-        dstate.peer_state.am_choking = false;
+        rstate.am_choking = false;
         outs.push_back(out);
     }
-    if dstate.blah_state.nreceived >= 1 && !dstate.peer_state.am_interested {
+    if rstate.temp.nreceived >= 1 && !rstate.am_interested {
         let out = Message::Interested {};
         debug!(log, "sending message: {:?}", out);
-        dstate.peer_state.am_interested = true;
+        rstate.am_interested = true;
         outs.push_back(out);
     }
-    if !dstate.blah_state.waiting && !dstate.peer_state.peer_choking && dstate.peer_state.am_interested {
+    if !rstate.temp.waiting && !rstate.peer_choking && rstate.am_interested {
         match dstate.manifest.manifest.next_desired_block() {
             None => {
                 // No more blocks needed! Unless something fails verification.
                 for piece in dstate.manifest.manifest.needs_verify() {
                     let expected_hash = dstate.info.piece_hashes[piece as usize].clone();
-                    println!("verifying piece: {}", piece);
+                    info!(log, "verifying piece: {}", piece);
                     if let Some(verified) = dstate.datastore.verify_piece(piece, expected_hash)? {
-                        println!("verified piece: {}", verified.piece);
+                        info!(log, "verified piece: {}", verified.piece);
                         dstate.manifest.manifest.mark_verified(verified)?;
                     } else {
-                        println!("flunked piece: {}", piece);
+                        info!(log, "flunked piece: {}", piece);
                         dstate.manifest.manifest.remove_piece(piece)?;
                     }
                 }
@@ -383,7 +415,7 @@ fn handle_peer_message(log: &Logger, dstate: &mut DownloaderState, msg: &Message
                     length: desire.length,
                 };
                 debug!(log, "sending message: {:?}", out);
-                dstate.blah_state.waiting = true;
+                rstate.temp.waiting = true;
                 outs.push_back(out);
             }
         }
@@ -398,6 +430,9 @@ fn handle_peer_message(log: &Logger, dstate: &mut DownloaderState, msg: &Message
 
 #[derive(Debug)]
 pub struct PeerState {
+    /// ID of the remote peer
+    peer_id: PeerID,
+
     /// Peer is interested in this client
     peer_interested: bool,
     /// Peer is choking this client
@@ -407,23 +442,27 @@ pub struct PeerState {
     am_choking: bool,
 
     has: Fillable,
+
+    temp: TempState,
 }
 
 #[derive(Debug, Default)]
-pub struct BlahState {
+pub struct TempState {
     nreceived: u64,
     requested: bool,
     waiting: bool,
 }
 
 impl PeerState {
-    fn new(num_pieces: u64) -> Self {
+    fn new(num_pieces: u64, peer_id: PeerID) -> Self {
         PeerState {
+            peer_id: peer_id,
             peer_interested: false,
             peer_choking: true,
             am_interested: false,
             am_choking: true,
             has: Fillable::new(num_pieces),
+            temp: TempState::default(),
         }
     }
 }
