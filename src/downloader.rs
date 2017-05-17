@@ -60,7 +60,8 @@ pub fn start<P: AsRef<Path>>(info: MetaInfo, peer_id: PeerID, store_path: P, man
     let num_pieces = info.num_pieces() as u64;
     let info_hash = info.info_hash.clone();
 
-    let n_start_peers = cmp::min(1, tracker_res.peers.len());
+    let n_start_peers = cmp::min(10, tracker_res.peers.len());
+    println!("using {}/{} available peers", n_start_peers, tracker_res.peers.len());
 
     let dstate = DownloaderState {
         info: info,
@@ -78,7 +79,15 @@ pub fn start<P: AsRef<Path>>(info: MetaInfo, peer_id: PeerID, store_path: P, man
         let dstate_c = dstate_c.clone();
         let handle = handle.clone();
         let f = connect_peer(peer.address, info_hash.clone(), peer_id.clone(), &handle)
-            .and_then(move |(stream, remote_peer_id)| drive_peer(dstate_c, &handle, stream, remote_peer_id))
+            .then(move |res| match res {
+                Err(err) => {
+                    println!("could not connect to peer: {}", err);
+                    future::ok(()).bxed()
+                }
+                Ok((stream, remote_peer_id)) => {
+                    drive_peer(dstate_c, &handle, stream, remote_peer_id)
+                }
+            })
             .bxed();
         top_futures.push(f);
     }

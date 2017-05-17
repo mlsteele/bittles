@@ -224,7 +224,7 @@ impl ManifestWithFile {
                 Ok(x)
             }
             Err(err) => {
-                println!("manifest created anew because: {:?}", err);
+                println!("manifest created anew because: {}", err);
                 Ok(Self::new(info, path))
             }
         }
