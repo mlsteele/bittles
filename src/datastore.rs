@@ -18,7 +18,8 @@ pub struct DataStore {
 
 impl DataStore {
     pub fn create_or_open<P: AsRef<Path>>(metainfo: &MetaInfo, path: P) -> Result<Self> {
-        let f = fs::OpenOptions::new().read(true)
+        let f = fs::OpenOptions::new()
+            .read(true)
             .write(true)
             .create(true)
             .truncate(false)
@@ -26,13 +27,14 @@ impl DataStore {
             .chain_err(|| "datastore file could not be opened")?;
         f.set_len(metainfo.size_info.total_size())?;
         Ok(DataStore {
-            file: f,
-            size_info: metainfo.size_info.clone(),
-        })
+               file: f,
+               size_info: metainfo.size_info.clone(),
+           })
     }
 
     pub fn write_block(&mut self, piece: u64, offset: u64, block: &[u8]) -> Result<()> {
-        self.size_info.check_range(piece, offset, block.len() as u64)?;
+        self.size_info
+            .check_range(piece, offset, block.len() as u64)?;
         let x = self.size_info.absolute_offset(piece, offset);
         self.file.seek(SeekFrom::Start(x))?;
         self.file.write_all(block)?;

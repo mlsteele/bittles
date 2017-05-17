@@ -28,13 +28,13 @@ impl TrackerClient {
         client.set_read_timeout(Some(Duration::from_secs(10)));
         client.set_write_timeout(Some(Duration::from_secs(10)));
         Ok(TrackerClient {
-            metainfo: metainfo,
-            peer_id: peer_id,
-            url: url,
-            client: client,
-            tracker_id: None,
-            user_agent: "Bittles/0.01 rust-lang".to_string(),
-        })
+               metainfo: metainfo,
+               peer_id: peer_id,
+               url: url,
+               client: client,
+               tracker_id: None,
+               user_agent: "Bittles/0.01 rust-lang".to_string(),
+           })
     }
 
     pub fn easy_start(&mut self) -> Result<TrackerResponse> {
@@ -116,18 +116,18 @@ impl TrackerClient {
         let b = BencodeRef::decode(buf.as_slice(), BDecodeOpt::default())?;
         let bd = b.dict().ok_or("response bencoding not a dict")?;
         Ok(TrackerResponse {
-            failure_reason: lookup_str(bd, "failure reason".as_bytes())?,
-            warning_message: lookup_str(bd, "warning message".as_bytes())?,
-            interval: lookup_i64(bd, "interval".as_bytes())?
-                .ok_or("missing 'interval'")?,
-            min_interval: lookup_i64(bd, "min interval".as_bytes())?,
-            tracker_id: lookup_str(bd, "tracker id".as_bytes())?,
-            complete: lookup_i64(bd, "complete".as_bytes())?
-                .ok_or("missing 'complete'")?,
-            incomplete: lookup_i64(bd, "incomplete".as_bytes())?
-                .ok_or("missing 'incomplete'")?,
-            peers: self.parse_peers(bd)?, // TODO
-        })
+               failure_reason: lookup_str(bd, "failure reason".as_bytes())?,
+               warning_message: lookup_str(bd, "warning message".as_bytes())?,
+               interval: lookup_i64(bd, "interval".as_bytes())?
+                   .ok_or("missing 'interval'")?,
+               min_interval: lookup_i64(bd, "min interval".as_bytes())?,
+               tracker_id: lookup_str(bd, "tracker id".as_bytes())?,
+               complete: lookup_i64(bd, "complete".as_bytes())?
+                   .ok_or("missing 'complete'")?,
+               incomplete: lookup_i64(bd, "incomplete".as_bytes())?
+                   .ok_or("missing 'incomplete'")?,
+               peers: self.parse_peers(bd)?, // TODO
+           })
     }
 
     /// Parse the peers list from a complete tracker response bdict.
@@ -150,17 +150,18 @@ impl TrackerClient {
             if peers.len() % 6 != 0 {
                 bail!("Peers 'byte' representation not 6*n bytes");
             }
-            return Ok(peers.chunks(6)
-                .map(|chunk| {
-                    let (bytes_ip, bytes_port) = chunk.split_at(4);
-                    let port = BigEndian::read_u16(bytes_port);
-                    let ip = net::Ipv4Addr::new(bytes_ip[0], bytes_ip[1], bytes_ip[2], bytes_ip[3]);
-                    Peer {
-                        peer_id: None,
-                        address: net::SocketAddr::V4(net::SocketAddrV4::new(ip, port)),
-                    }
-                })
-                .collect());
+            return Ok(peers
+                          .chunks(6)
+                          .map(|chunk| {
+                let (bytes_ip, bytes_port) = chunk.split_at(4);
+                let port = BigEndian::read_u16(bytes_port);
+                let ip = net::Ipv4Addr::new(bytes_ip[0], bytes_ip[1], bytes_ip[2], bytes_ip[3]);
+                Peer {
+                    peer_id: None,
+                    address: net::SocketAddr::V4(net::SocketAddrV4::new(ip, port)),
+                }
+            })
+                          .collect());
         }
         bail!("wrong type for 'peers': {:?}", peers);
     }

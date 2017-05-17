@@ -138,7 +138,8 @@ impl Fillable {
                 if let Some(l) = last {
                     if l.end >= i.start {
                         bail!("Interval starting at {} cannot follow interval ending at {}",
-                              i.start, l.end);
+                              i.start,
+                              l.end);
                     }
                 }
                 last = Some(i)

@@ -194,13 +194,13 @@ pub fn tcp_connect<T>(addr: T, timeout: Duration) -> io::Result<std::net::TcpStr
     let (tx1, rx) = mpsc::sync_channel(0);
     let tx2 = tx1.clone();
     thread::spawn(move || {
-        let stream = std::net::TcpStream::connect(addr);
-        let _ = tx1.send(stream);
-    });
+                      let stream = std::net::TcpStream::connect(addr);
+                      let _ = tx1.send(stream);
+                  });
     thread::spawn(move || {
-        thread::sleep(timeout);
-        let _ = tx2.send(Err(io::Error::new(io::ErrorKind::TimedOut, "tcp connect timed out")));
-    });
+                      thread::sleep(timeout);
+                      let _ = tx2.send(Err(io::Error::new(io::ErrorKind::TimedOut, "tcp connect timed out")));
+                  });
     rx.recv().unwrap()
 }
 
@@ -213,12 +213,15 @@ pub fn tcp_connect2(addr: &SocketAddr, timeout: Duration, handle: &reactor::Hand
             let timeout = timeout.map(|_| io::Error::new(io::ErrorKind::TimedOut, "timeout in tcp connection"));
             let stream = TcpStream::connect(addr, handle);
             use futures::future::Either;
-            stream.select2(timeout).then(|res| match res {
-                Ok(Either::A((stream, _))) => Ok(stream),
-                Ok(Either::B((timeout, _))) => Err(timeout),
-                Err(Either::A((err, _))) => Err(err),
-                Err(Either::B((err, _))) => Err(err),
-            }).bxed()
+            stream
+                .select2(timeout)
+                .then(|res| match res {
+                          Ok(Either::A((stream, _))) => Ok(stream),
+                          Ok(Either::B((timeout, _))) => Err(timeout),
+                          Err(Either::A((err, _))) => Err(err),
+                          Err(Either::B((err, _))) => Err(err),
+                      })
+                .bxed()
         }
     }
 }
@@ -303,7 +306,7 @@ mod tests2 {
         vec.push_back(2);
         vec.push_back(3);
         let stream = VecDequeStream::<i64, ()>::new(vec);
-        assert_eq!(vec![1,2,3], stream.collect().wait().unwrap());
+        assert_eq!(vec![1, 2, 3], stream.collect().wait().unwrap());
     }
 }
 

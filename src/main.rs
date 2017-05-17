@@ -71,7 +71,9 @@ fn main() {
         if let Some(backtrace) = e.backtrace() {
             writeln!(stderr, "backtrace: {:?}", backtrace).expect(errmsg);
         } else {
-            writeln!(stderr, "backtrace: [no backtrace, run with RUST_BACKTRACE=1]").expect(errmsg);
+            writeln!(stderr,
+                     "backtrace: [no backtrace, run with RUST_BACKTRACE=1]")
+                    .expect(errmsg);
         }
 
         ::std::process::exit(1);
@@ -92,7 +94,8 @@ fn inner() -> Result<()> {
     let mut f = File::open(torrent_path).chain_err(|| "open torrent file")?;
     f.read_to_end(&mut buf).unwrap();
 
-    let res = BencodeRef::decode(buf.as_slice(), BDecodeOpt::default()).chain_err(|| "decode torrent")?;
+    let res = BencodeRef::decode(buf.as_slice(), BDecodeOpt::default())
+        .chain_err(|| "decode torrent")?;
 
     let info = MetaInfo::new(res)?;
     println!("{}", info);

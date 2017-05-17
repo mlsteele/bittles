@@ -80,7 +80,8 @@ impl Manifest {
         // Fill the first piece
         {
             // println!("\tWill add interval from {} to {}", offset, )
-            let nf = self.present[piece as usize].add(offset,
+            let nf = self.present[piece as usize]
+                .add(offset,
                      cmp::min(offset + length, self.size_info.piece_size(piece)))?;
             if nf {
                 newly_filled.push(piece)
@@ -132,7 +133,12 @@ impl Manifest {
 
     /// List of pieces that still need to be verified.
     pub fn needs_verify(&self) -> Vec<u64> {
-        self.verified.iter().enumerate().filter(|&(_i, v)| !v).map(|(i, _v)| i as u64).collect()
+        self.verified
+            .iter()
+            .enumerate()
+            .filter(|&(_i, v)| !v)
+            .map(|(i, _v)| i as u64)
+            .collect()
     }
 
     /// Whether all data has been verified.
@@ -151,10 +157,10 @@ impl Manifest {
                         let left = self.present[i].size() - x;
                         let max_length = 1 << 14;
                         return Some(BlockRequest {
-                            piece: i as u32,
-                            offset: x as u32,
-                            length: cmp::min(left as u32, max_length),
-                        });
+                                        piece: i as u32,
+                                        offset: x as u32,
+                                        length: cmp::min(left as u32, max_length),
+                                    });
                     }
                 }
             }
@@ -245,9 +251,9 @@ impl ManifestWithFile {
         }
         manifest.check()?;
         Ok(Self {
-            manifest: manifest,
-            path: path.as_ref().to_owned(),
-        })
+               manifest: manifest,
+               path: path.as_ref().to_owned(),
+           })
     }
 
     pub fn store(&self) -> Result<()> {

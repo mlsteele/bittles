@@ -124,12 +124,13 @@ impl MetaInfo {
                   pieces_hashes_concat.len(),
                   PIECE_HASH_SIZE);
         }
-        let piece_hashes = pieces_hashes_concat.chunks(PIECE_HASH_SIZE)
+        let piece_hashes = pieces_hashes_concat
+            .chunks(PIECE_HASH_SIZE)
             .map(|a| {
-                let mut h = [0; PIECE_HASH_SIZE];
-                h.copy_from_slice(a);
-                PieceHash { hash: h }
-            })
+                     let mut h = [0; PIECE_HASH_SIZE];
+                     h.copy_from_slice(a);
+                     PieceHash { hash: h }
+                 })
             .collect::<Vec<_>>();
 
         let n_pieces = piece_hashes.len();
@@ -143,8 +144,8 @@ impl MetaInfo {
                 .ok_or_err("'announce' not a string")?
                 .to_string(),
             info_hash: make_info_hash(d.lookup("info".as_bytes())
-                .ok_or_err("missing 'info'")?
-                .buffer())?,
+                                          .ok_or_err("missing 'info'")?
+                                          .buffer())?,
             piece_hashes: piece_hashes,
             file_info: file_info.clone(),
             size_info: SizeInfo {
@@ -177,9 +178,9 @@ impl MetaInfo {
             .int()
             .ok_or_err("'info.length' not int")?;
         Ok(FileInfo::Single {
-            name: name.to_owned(),
-            length: length as u64,
-        })
+               name: name.to_owned(),
+               length: length as u64,
+           })
     }
 
     pub fn num_pieces(&self) -> usize {

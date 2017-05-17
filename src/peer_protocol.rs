@@ -83,13 +83,13 @@ impl BitTorrentPeerCodec {
 
         if message_length == 1 {
             return match message_id {
-                0 => Ok(Choke),
-                1 => Ok(Unchoke),
-                2 => Ok(Interested),
-                3 => Ok(NotInterested),
-                4 | 5 | 6 | 7 | 8 | 9 => bail!("message id {} specified no body", message_id),
-                _ => bail!("unknown message id {} (no-body)", message_id),
-            };
+                       0 => Ok(Choke),
+                       1 => Ok(Unchoke),
+                       2 => Ok(Interested),
+                       3 => Ok(NotInterested),
+                       4 | 5 | 6 | 7 | 8 | 9 => bail!("message id {} specified no body", message_id),
+                       _ => bail!("unknown message id {} (no-body)", message_id),
+                   };
         }
 
         let body_length: usize = message_length - 1;
@@ -209,7 +209,11 @@ impl tokio_io::codec::Encoder for BitTorrentPeerCodec {
                 dst.put_u32::<BE>(1); // message length
                 dst.put_u8(message_id);
             }
-            Message::Request { piece, offset, length } => {
+            Message::Request {
+                piece,
+                offset,
+                length,
+            } => {
                 dst.ensure(4 + 1 + 4 * 3);
                 dst.put_u32::<BE>(1 + 4 * 3); // message length
                 dst.put_u8(message_id);
@@ -303,17 +307,17 @@ pub fn handshake_send_async<W>(stream: W, info_hash: InfoHash, peer_id: PeerID) 
     write_all(stream, [pstrlen])
         .and_then(move |(stream, _)| write_all(stream, pstr))
         .and_then(|(stream, _)| {
-            // 8 reserved bytes
-            write_all(stream, [0; 8])
-        })
+                      // 8 reserved bytes
+                      write_all(stream, [0; 8])
+                  })
         .and_then(move |(stream, _)| {
-            // Info hash
-            write_all(stream, info_hash.hash)
-        })
+                      // Info hash
+                      write_all(stream, info_hash.hash)
+                  })
         .and_then(move |(stream, _)| {
-            // Peer id
-            write_all(stream, peer_id.id)
-        })
+                      // Peer id
+                      write_all(stream, peer_id.id)
+                  })
         .map(|(stream, _)| stream)
         .map_err(|e| e.into())
         .boxed()
@@ -388,7 +392,11 @@ impl Message {
                 let set = bits.iter().filter(|b| **b).count();
                 format!("Bitfield {{ total:{} set:{} }}", total, set)
             }
-            &Message::Piece { ref piece, ref offset, ref block } => {
+            &Message::Piece {
+                ref piece,
+                ref offset,
+                ref block,
+            } => {
                 format!("Piece {{ piece:{} offset:{} block:[len {}] }}",
                         piece,
                         offset,
@@ -407,9 +415,21 @@ impl Message {
             Message::NotInterested => 3,
             Message::Have { piece: _ } => 4,
             Message::Bitfield { bits: _ } => 5,
-            Message::Request { piece: _, offset: _, length: _ } => 6,
-            Message::Piece { piece: _, offset: _, block: _ } => 7,
-            Message::Cancel { piece: _, offset: _, length: _ } => 8,
+            Message::Request {
+                piece: _,
+                offset: _,
+                length: _,
+            } => 6,
+            Message::Piece {
+                piece: _,
+                offset: _,
+                block: _,
+            } => 7,
+            Message::Cancel {
+                piece: _,
+                offset: _,
+                length: _,
+            } => 8,
             Message::Port { port: _ } => 9,
         }
     }
