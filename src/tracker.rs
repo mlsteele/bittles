@@ -49,7 +49,7 @@ impl TrackerClient {
             no_peer_id: false,
             event: TrackerEvent::Started,
             ip: None,
-            numwant: Some(4),
+            numwant: Some(10),
             key: None,
             tracker_id: None,
         };

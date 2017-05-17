@@ -3,6 +3,7 @@ use errors::*;
 use fillable::*;
 use metainfo::*;
 use serde_cbor;
+use slog::Logger;
 use std;
 use std::cmp;
 use std::fmt;
@@ -222,14 +223,14 @@ pub struct ManifestWithFile {
 }
 
 impl ManifestWithFile {
-    pub fn load_or_new<P: AsRef<Path>>(info: MetaInfo, path: P) -> Result<Self> {
+    pub fn load_or_new<P: AsRef<Path>>(log: Logger, info: MetaInfo, path: P) -> Result<Self> {
         match Self::load_from_path(info.clone(), path.as_ref().clone()) {
             Ok(x) => {
-                println!("manifest loaded from file");
+                debug!(log, "manifest loaded from file");
                 Ok(x)
             }
             Err(err) => {
-                println!("manifest created anew because: {}", err);
+                debug!(log, "manifest created anew because: {}", err);
                 Ok(Self::new(info, path))
             }
         }
@@ -255,8 +256,8 @@ impl ManifestWithFile {
            })
     }
 
-    pub fn store(&self) -> Result<()> {
-        println!("saving manifest: {:?}", self.path);
+    pub fn store(&self, log: &Logger) -> Result<()> {
+        debug!(log, "saving manifest: {:?}", self.path);
         let temp_path = {
             let mut fname: String = self.path
                 .file_name()

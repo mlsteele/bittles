@@ -9,6 +9,7 @@ use manifest::ManifestWithFile;
 use metainfo::{InfoHash, MetaInfo};
 use peer_protocol;
 use peer_protocol::{BitTorrentPeerCodec, Message, PeerID};
+use slog::Logger;
 use std::cmp;
 use std::collections::vec_deque::VecDeque;
 use std::default::Default;
@@ -41,14 +42,16 @@ struct DownloaderState {
 
 type AM<T> = Arc<Mutex<T>>;
 
-pub fn start<P: AsRef<Path>>(info: MetaInfo, peer_id: PeerID, store_path: P, manifest_path: P) -> Result<()> {
+pub fn start<P: AsRef<Path>>(log: Logger, info: MetaInfo, peer_id: PeerID, store_path: P, manifest_path: P) -> Result<()> {
+    let log2 = log.clone();
+
     let mut core = reactor::Core::new()?;
     let handle = core.handle();
 
     mkdirp_for_file(&store_path)?;
     mkdirp_for_file(&manifest_path)?;
     let datastore = DataStore::create_or_open(&info, store_path)?;
-    let manifest = ManifestWithFile::load_or_new(info.clone(), manifest_path)?;
+    let manifest = ManifestWithFile::load_or_new(log2, info.clone(), manifest_path)?;
     let mut tc = TrackerClient::new(info.clone(), peer_id.clone())?;
 
     let tracker_res = tc.easy_start()?;
@@ -91,17 +94,19 @@ pub fn start<P: AsRef<Path>>(info: MetaInfo, peer_id: PeerID, store_path: P, man
         };
         let dstate_c = dstate_c.clone();
         let handle = handle.clone();
-        let f = connect_peer(peer.address,
+        let log = log.new(o!("peer_num" => peer_num));
+        let f = connect_peer(&log,
+                             peer.address,
                              info_hash.clone(),
                              peer_id.clone(),
                              peer_num,
                              &handle)
                 .then(move |res| match res {
                           Err(err) => {
-                              println!("could not connect to peer: {}", err);
+                              error!(log, "could not connect to peer: {}", err);
                               future::ok(()).bxed()
                           }
-                          Ok((stream, remote_peer_id)) => drive_peer(dstate_c, &handle, stream, peer_num, remote_peer_id),
+                          Ok((stream, remote_peer_id)) => drive_peer(&log, dstate_c, &handle, stream, peer_num, remote_peer_id),
                       })
                 .bxed();
         top_futures.push(f);
@@ -114,19 +119,23 @@ pub fn start<P: AsRef<Path>>(info: MetaInfo, peer_id: PeerID, store_path: P, man
 }
 
 /// Connect to a remote peer
-fn connect_peer(addr: SocketAddr, info_hash: InfoHash, peer_id: PeerID, peer_num: PeerNum, handle: &reactor::Handle) -> BxFuture<(PeerFramed, PeerID), Error> {
+fn connect_peer(log: &Logger, addr: SocketAddr, info_hash: InfoHash, peer_id: PeerID, peer_num: PeerNum, handle: &reactor::Handle) -> BxFuture<(PeerFramed, PeerID), Error> {
     let info_hash2 = info_hash.clone();
 
-    println!("[{}] connecting to {} ...", peer_num, addr);
+    let log1 = log.clone();
+    let log2 = log.clone();
+    let log3 = log.clone();
+
+    info!(log, "connecting to {} ...", addr);
     tcp_connect2(&addr, Duration::from_millis(3000), &handle)
         .chain_err(|| "peer connection failed")
         .and_then(move |stream| {
-                      println!("[{}] connected", peer_num);
+                      info!(log1, "connected");
                       peer_protocol::handshake_send_async(stream, info_hash.clone(), peer_id.clone())
                   })
         .and_then(|stream| peer_protocol::handshake_read_1_async(stream))
         .and_then(move |(stream, remote_info_hash)| {
-            println!("[{}] remote info hash: {:?}", peer_num, remote_info_hash);
+            debug!(log2, "remote info hash: {:?}", remote_info_hash);
             if remote_info_hash != info_hash2 {
                 bail!("peer [{}] info hash mismatch peer:{:?} me:{:?}",
                       peer_num,
@@ -137,7 +146,7 @@ fn connect_peer(addr: SocketAddr, info_hash: InfoHash, peer_id: PeerID, peer_num
         })
         .and_then(|stream| peer_protocol::handshake_read_2_async(stream).map(move |(stream, remote_peer_id)| (stream, remote_peer_id)))
         .and_then(move |(stream, remote_peer_id)| {
-                      println!("[{}] remote peer id: {:?}", peer_num, remote_peer_id);
+                      debug!(log3, "remote peer id: {:?}", remote_peer_id);
 
                       // let stream: Framed<TcpStream,BitTorrentPeerCodec> = stream.framed(BitTorrentPeerCodec);
                       let stream: PeerFramed = stream.framed(BitTorrentPeerCodec);
@@ -152,7 +161,7 @@ enum HandlePeerMessageRes {
     Close,
 }
 
-fn drive_peer(dstate_c: AM<DownloaderState>, handle: &Handle, stream: PeerFramed, peer_num: PeerNum, remote_peer_id: PeerID) -> BxFuture<(), Error> {
+fn drive_peer(log: &Logger, dstate_c: AM<DownloaderState>, handle: &Handle, stream: PeerFramed, peer_num: PeerNum, remote_peer_id: PeerID) -> BxFuture<(), Error> {
     let (peer_tx, peer_rx) = stream.split();
 
     // Separate send from receive so that the listener doesn't block all the time
@@ -165,10 +174,11 @@ fn drive_peer(dstate_c: AM<DownloaderState>, handle: &Handle, stream: PeerFramed
     // let _: &Future<Item = (_, _), Error = Error> = &peer_tx.send_all(buf_rx.map_err(|()| "lol".into()));
 
     // Process the send channel
+    let log2 = log.clone();
     handle.spawn(peer_tx.send_all(buf_rx.map_err(|()| Into::<Error>::into("peer send failed")))
         .map(|(_sink, _stream)| ())
-        .map_err(|e| {
-            println!("warning: send to peer failed: {}", e);
+        .map_err(move |e| {
+            warn!(log2, "warning: send to peer failed: {}", e);
         }));
 
     // type PeerStream = Box<Stream<Item = Message, Error = Error>>;
@@ -182,9 +192,11 @@ fn drive_peer(dstate_c: AM<DownloaderState>, handle: &Handle, stream: PeerFramed
         dstate_c: AM<DownloaderState>,
         peer_rx: S,
         peer_tx: U,
+        log: Logger,
     }
 
     let init = LoopState {
+        log: log.clone(),
         dstate_c: dstate_c,
         peer_rx: peer_rx,
         peer_tx: buf_tx.sink_map_err(|send_err| format!("error sending message: {}", send_err).into()),
@@ -195,6 +207,7 @@ fn drive_peer(dstate_c: AM<DownloaderState>, handle: &Handle, stream: PeerFramed
                          dstate_c,
                          peer_rx,
                          peer_tx,
+                         log,
                      }|
      -> BxFuture<Loop<(), LoopState<_, _>>, Error> {
         peer_rx
@@ -205,7 +218,7 @@ fn drive_peer(dstate_c: AM<DownloaderState>, handle: &Handle, stream: PeerFramed
                     Some(msg) => {
                         let cmd: Result<HandlePeerMessageRes> = {
                             let mut dstate = dstate_c.lock().unwrap();
-                            handle_peer_message(&mut dstate, &msg)
+                            handle_peer_message(&log, &mut dstate, &msg)
                         };
                         use self::HandlePeerMessageRes::*;
                         match cmd {
@@ -214,6 +227,7 @@ fn drive_peer(dstate_c: AM<DownloaderState>, handle: &Handle, stream: PeerFramed
                                                               dstate_c,
                                                               peer_rx,
                                                               peer_tx,
+                                                              log,
                                                           }))
                                         .bxed()
                             }
@@ -225,23 +239,23 @@ fn drive_peer(dstate_c: AM<DownloaderState>, handle: &Handle, stream: PeerFramed
                                                                 dstate_c,
                                                                 peer_rx,
                                                                 peer_tx,
+                                                                log,
                                                             })
                                          })
                                     .bxed()
                             }
                             Ok(Close) => {
-                                // println!("closing peer connection: {:?}", remote_peer_id.clone());
-                                println!("closing peer connection");
+                                debug!(log, "closing peer connection");
                                 future::ok(Loop::Break(())).bxed()
                             }
                             Err(err) => {
-                                println!("closing peer due to error: {:?}", err);
+                                error!(log, "closing peer due to error: {:?}", err);
                                 future::ok(Loop::Break(())).bxed()
                             }
                         }
                     }
                     None => {
-                        println!("peer hung up");
+                        debug!(log, "peer hung up");
                         future::ok(Loop::Break(())).bxed()
                     }
                 }
@@ -253,13 +267,13 @@ fn drive_peer(dstate_c: AM<DownloaderState>, handle: &Handle, stream: PeerFramed
 
 /// One synchronous step.
 /// Returns messages to send.
-fn handle_peer_message(dstate: &mut DownloaderState, msg: &Message) -> Result<HandlePeerMessageRes> {
+fn handle_peer_message(log: &Logger, dstate: &mut DownloaderState, msg: &Message) -> Result<HandlePeerMessageRes> {
     use self::HandlePeerMessageRes::*;
 
     let mut outs = VecDeque::new();
-    println!("recv message {}: {}",
-             dstate.blah_state.nreceived,
-             msg.summarize());
+    debug!(log, "recv message";
+           "msg" => msg.summarize(),
+           "n" => dstate.blah_state.nreceived);
     dstate.blah_state.nreceived += 1;
     match msg {
         &Message::KeepAlive => {}
@@ -321,21 +335,22 @@ fn handle_peer_message(dstate: &mut DownloaderState, msg: &Message) -> Result<Ha
                 }
             }
 
-            dstate.manifest.store()?;
+            dstate.manifest.store(log)?;
             dstate.blah_state.waiting = false;
         }
         &Message::Cancel { .. } => bail!("not implemented"),
         &Message::Port { .. } => {}
     }
+
     if dstate.blah_state.nreceived >= 1 && dstate.peer_state.am_choking {
         let out = Message::Unchoke {};
-        println!("sending message: {:?}", out);
+        debug!(log, "sending message: {:?}", out);
         dstate.peer_state.am_choking = false;
         outs.push_back(out);
     }
     if dstate.blah_state.nreceived >= 1 && !dstate.peer_state.am_interested {
         let out = Message::Interested {};
-        println!("sending message: {:?}", out);
+        debug!(log, "sending message: {:?}", out);
         dstate.peer_state.am_interested = true;
         outs.push_back(out);
     }
@@ -354,7 +369,7 @@ fn handle_peer_message(dstate: &mut DownloaderState, msg: &Message) -> Result<Ha
                         dstate.manifest.manifest.remove_piece(piece)?;
                     }
                 }
-                dstate.manifest.store()?;
+                dstate.manifest.store(log)?;
 
                 if dstate.manifest.manifest.all_verified() {
                     println!("all pieces verified!");
@@ -367,7 +382,7 @@ fn handle_peer_message(dstate: &mut DownloaderState, msg: &Message) -> Result<Ha
                     offset: desire.offset,
                     length: desire.length,
                 };
-                println!("sending message: {:?}", out);
+                debug!(log, "sending message: {:?}", out);
                 dstate.blah_state.waiting = true;
                 outs.push_back(out);
             }

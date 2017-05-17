@@ -16,6 +16,10 @@ extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 extern crate serde_cbor;
+#[macro_use]
+extern crate slog;
+extern crate slog_term;
+extern crate slog_async;
 extern crate url;
 extern crate futures;
 extern crate tokio_core;
@@ -40,6 +44,7 @@ use manifest::*;
 use metainfo::*;
 use peer_protocol::PeerID;
 use ring::rand::SystemRandom;
+use slog::Logger;
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
@@ -54,7 +59,19 @@ struct Args {
 }
 
 fn main() {
-    if let Err(ref e) = inner() {
+
+    // Set up loggin
+    let decorator = slog_term::TermDecorator::new().build();
+    let drain = {
+        use slog::Drain;
+        let drain = slog_term::FullFormat::new(decorator).build().fuse();
+        slog_async::Async::new(drain).build().fuse()
+    };
+    let log = slog::Logger::root(drain, o!());
+
+    info!(log, "startup");
+
+    if let Err(ref e) = inner(log) {
         use std::io::Write;
         let stderr = &mut ::std::io::stderr();
         let errmsg = "Error writing to stderr";
@@ -79,14 +96,14 @@ fn main() {
     }
 }
 
-fn inner() -> Result<()> {
+fn inner(log: Logger) -> Result<()> {
     let args: Args = Docopt::new(USAGE)
         .and_then(|d| d.decode())
         .unwrap_or_else(|e| e.exit());
 
     let cwd = std::env::current_dir().chain_err(|| "get cwd")?;
-    println!("cwd: {}", cwd.display());
-    println!("torrent: {}", args.arg_torrent);
+    info!(log, "cwd: {}", cwd.display());
+    info!(log, "torrent: {}", args.arg_torrent);
 
     let torrent_path = Path::new(&args.arg_torrent);
     let mut buf = vec![0;0];
@@ -97,15 +114,15 @@ fn inner() -> Result<()> {
         .chain_err(|| "decode torrent")?;
 
     let info = MetaInfo::new(res)?;
-    println!("{}", info);
+    info!(log, "{}", info);
 
     let manifest = Manifest::new(info.clone());
-    println!("{}", manifest);
+    info!(log, "{}", manifest);
 
     let rand = SystemRandom::new();
 
     let peer_id = PeerID::new(&rand)?;
-    println!("peer_id: {:?}", peer_id);
+    info!(log, "peer_id: {:?}", peer_id);
 
     let datastore_path = {
         let mut x = cwd.clone();
@@ -113,7 +130,7 @@ fn inner() -> Result<()> {
         x.push("data");
         x
     };
-    println!("datastore path: {:?}", datastore_path);
+    info!(log, "datastore path: {:?}", datastore_path);
 
     let manifest_path = {
         let mut x = cwd.clone();
@@ -121,8 +138,8 @@ fn inner() -> Result<()> {
         x.push("manifest");
         x
     };
-    println!("manifest path: {:?}", manifest_path);
+    info!(log, "manifest path: {:?}", manifest_path);
 
-    downloader::start(info, peer_id, datastore_path, manifest_path)?;
+    downloader::start(log, info, peer_id, datastore_path, manifest_path)?;
     Ok(())
 }
