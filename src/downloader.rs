@@ -23,6 +23,7 @@ use tokio_core::reactor;
 use tokio_core::reactor::Handle;
 use tokio_io::AsyncRead;
 use tokio_io::codec::Framed;
+use tracker;
 use tracker::TrackerClient;
 use util::{BxFuture, FutureEnhanced, VecDequeStream, mkdirp_for_file, tcp_connect2};
 
@@ -94,32 +95,59 @@ pub fn start<P: AsRef<Path>>(log: Logger, info: MetaInfo, peer_id: PeerID, store
         let dstate_c = dstate_c.clone();
         let handle = handle.clone();
         let log = log.new(o!("peer_num" => peer_num));
-        let f = connect_peer(&log,
-                             peer.address,
-                             info_hash.clone(),
-                             peer_id.clone(),
-                             peer_num,
-                             &handle)
-                .then(move |res| match res {
-                          Err(err) => {
-                              error!(log, "could not connect to peer: {}", err);
-                              future::ok(()).bxed()
-                          }
-                          Ok((stream, remote_peer_id)) => {
-                              // Create peer state
-                              {
-                                  let mut dstate = dstate_c.lock().unwrap();
-                                  let x = dstate
-                                      .peer_states
-                                      .insert(peer_num, PeerState::new(num_pieces, remote_peer_id));
-                                  if x.is_some() {
-                                      warn!(log, "peer state already existed"; "peer_num" => peer_num)
-                                  }
-                              }
+        let f = run_peer(log.clone(),
+                         handle.clone(),
+                         dstate_c,
+                         peer.clone(),
+                         info_hash.clone(),
+                         num_pieces,
+                         peer_id.clone(),
+                         peer_num);
+        top_futures.push(f);
+    }
 
-                              let dstate_c2 = dstate_c.clone();
-                              drive_peer(&log, dstate_c, &handle, stream, peer_num)
-                                  .then(move |res| {
+    let future_root = future::join_all(top_futures);
+
+    core.run(future_root)?;
+    Ok(())
+}
+
+/// Connect and run a peer.
+/// Connects and runs the peer loop.
+/// Logs most errors. Any returned error is a programming error.
+fn run_peer(log: Logger,
+            handle: reactor::Handle,
+            dstate_c: AM<DownloaderState>,
+            peer: tracker::Peer,
+            info_hash: InfoHash,
+            num_pieces: u64,
+            local_peer_id: PeerID,
+            peer_num: PeerNum)
+            -> BxFuture<(), Error> {
+
+    let log2 = log.clone();
+    connect_peer(&log,
+                 peer.address,
+                 info_hash.clone(),
+                 local_peer_id.clone(),
+                 peer_num,
+                 &handle)
+            .and_then(move |(stream, remote_peer_id)| {
+                // Create peer state
+                {
+                    let mut dstate = dstate_c.lock().unwrap();
+                    let x = dstate
+                        .peer_states
+                        .insert(peer_num, PeerState::new(num_pieces, remote_peer_id));
+                    if x.is_some() {
+                        warn!(log, "peer state already existed"; "peer_num" => peer_num)
+                    }
+                }
+
+                let dstate_c2 = dstate_c.clone();
+                drive_peer(&log, dstate_c, &handle, stream, peer_num)
+                    .then(move |res| {
+                        // Delete peer state
                         let mut dstate = dstate_c2.lock().unwrap();
                         let x = dstate.peer_states.remove(&peer_num);
                         if x.is_none() {
@@ -128,17 +156,13 @@ pub fn start<P: AsRef<Path>>(log: Logger, info: MetaInfo, peer_id: PeerID, store
 
                         res
                     })
-                                  .bxed()
-                          }
-                      })
-                .bxed();
-        top_futures.push(f);
-    }
-
-    let future_root = future::join_all(top_futures);
-
-    core.run(future_root)?;
-    Ok(())
+                    .bxed()
+            })
+            .or_else(move |err| {
+                         error!(log2, "peer error: {}", err);
+                         Ok(())
+                     })
+            .bxed()
 }
 
 /// Connect to a remote peer
