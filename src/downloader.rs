@@ -490,3 +490,26 @@ impl PeerState {
         }
     }
 }
+
+struct OutsandingRequest {
+    peer_num: PeerNum,
+}
+
+struct OutstandingRequestsManager {}
+
+impl OutstandingRequestsManager {
+    fn new() -> Self {
+        Self {}
+    }
+
+    fn add(&mut self, peer: PeerNum, piece: u64, offset: u64, length: u64) {}
+
+    fn get(&self, piece: u64, offset: u64, length: u64) -> (HashSet<PeerNum>) {}
+
+    /// Returns the number of cleared items: 0 or 1.
+    fn clear(&mut self, peer: PeerNum, piece: u64, offset: u64, length: u64) -> usize {}
+
+    /// Clear all outstanding requests for a peer.
+    /// Returns the number of cleared items.
+    fn clear_peer(&mut self, peer: PeerNum) -> usize {}
+}
