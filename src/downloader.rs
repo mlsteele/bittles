@@ -11,7 +11,7 @@ use peer_protocol;
 use peer_protocol::{BitTorrentPeerCodec, Message, PeerID};
 use slog::Logger;
 use std::cmp;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::default::Default;
 use std::net::SocketAddr;
 use std::path::Path;
@@ -67,12 +67,6 @@ pub fn start<P: AsRef<Path>>(log: Logger, info: MetaInfo, peer_id: PeerID, store
     let num_pieces = info.num_pieces() as u64;
     let info_hash = info.info_hash.clone();
 
-    let n_start_peers = cmp::min(10, tracker_res.peers.len());
-    debug!(log,
-           "using {}/{} available peers",
-           n_start_peers,
-           tracker_res.peers.len());
-
     let dstate = DownloaderState {
         info: info,
         datastore: datastore,
@@ -85,6 +79,15 @@ pub fn start<P: AsRef<Path>>(log: Logger, info: MetaInfo, peer_id: PeerID, store
 
     let mut top_futures: Vec<BxFuture<(), Error>> = Vec::new();
 
+    top_futures.push(run_progress_report(log.clone(), handle.clone(), dstate_c.clone()));
+
+    let n_start_peers = cmp::min(10, tracker_res.peers.len());
+    debug!(log,
+           "using {}/{} available peers",
+           n_start_peers,
+           tracker_res.peers.len());
+
+    // Connect to an initial set of peers
     for peer in tracker_res.peers[..n_start_peers].iter() {
         let peer_num = {
             let dstate = dstate_c.lock().unwrap();
@@ -110,6 +113,40 @@ pub fn start<P: AsRef<Path>>(log: Logger, info: MetaInfo, peer_id: PeerID, store
 
     core.run(future_root)?;
     Ok(())
+}
+
+
+/// Run a loop that prints a progress report occasionally.
+fn run_progress_report(log: Logger, handle: reactor::Handle, dstate_c: AM<DownloaderState>) -> BxFuture<(), Error> {
+    use futures::future::Loop::{Break, Continue};
+
+    future::loop_fn((log, handle, dstate_c), |(log, handle, dstate_c)| {
+        let duration = Duration::from_millis(500);
+        match reactor::Timeout::new(duration, &handle) {
+            Err(err) => future::err(Into::<Error>::into(err)).bxed(),
+            Ok(timeout) => timeout
+                .map_err(|e| e.into())
+                .and_then(|()| {
+                    let pres = {
+                        let mut dstate = dstate_c.lock().unwrap();
+                        progress_report(log.clone(), &mut dstate)
+                    };
+                    match pres {
+                        Err(err) => Err(Into::<Error>::into(err)),
+                        Ok(true) => Ok(Continue((log, handle, dstate_c))),
+                        Ok(false) => Ok(Break(())),
+                    }
+                }).bxed(),
+        }
+    })
+            .bxed()
+}
+
+/// Returns whether to continue looping.
+fn progress_report(log: Logger, dstate: &mut DownloaderState) -> Result<bool> {
+    let bar = dstate.manifest.manifest.progress_bar();
+    info!(log, "progress report: {}", bar);
+    Ok(true)
 }
 
 /// Connect and run a peer.
@@ -491,10 +528,6 @@ impl PeerState {
     }
 }
 
-struct OutsandingRequest {
-    peer_num: PeerNum,
-}
-
 struct OutstandingRequestsManager {}
 
 impl OutstandingRequestsManager {
@@ -502,14 +535,28 @@ impl OutstandingRequestsManager {
         Self {}
     }
 
-    fn add(&mut self, peer: PeerNum, piece: u64, offset: u64, length: u64) {}
-
-    fn get(&self, piece: u64, offset: u64, length: u64) -> (HashSet<PeerNum>) {}
+    fn add(&mut self, peer: PeerNum, piece: u64, offset: u64, length: u64) {
+        unimplemented!();
+    }
 
     /// Returns the number of cleared items: 0 or 1.
-    fn clear(&mut self, peer: PeerNum, piece: u64, offset: u64, length: u64) -> usize {}
+    fn clear(&mut self, peer: PeerNum, piece: u64, offset: u64, length: u64) -> usize {
+        unimplemented!();
+    }
 
     /// Clear all outstanding requests for a peer.
     /// Returns the number of cleared items.
-    fn clear_peer(&mut self, peer: PeerNum) -> usize {}
+    fn clear_peer(&mut self, peer: PeerNum) -> usize {
+        unimplemented!();
+    }
+
+    /// Get the set of peers with outstanding requests for the block
+    fn get_peers(&self, piece: u64, offset: u64, length: u64) -> (HashSet<PeerNum>) {
+        unimplemented!();
+    }
+
+    /// Get the number of requests outstanding for the peer
+    fn get_num(&self, peer: PeerNum) -> u64 {
+        unimplemented!();
+    }
 }

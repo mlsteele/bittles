@@ -167,6 +167,22 @@ impl Manifest {
         }
         None
     }
+
+    pub fn progress_bar(&self) -> String {
+        let present = &self.present;
+        let verified = &self.verified;
+        present
+            .iter()
+            .zip(verified)
+            .map(|(p, v)| match (!p.is_empty(), *v) {
+                     (false, false) => "_",
+                     (true, false) => ".",
+                     (true, true) => "=",
+                     (false, true) => "!",
+                 })
+            .collect::<Vec<_>>()
+            .concat()
+    }
 }
 
 #[cfg(test)]

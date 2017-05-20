@@ -22,6 +22,10 @@ impl Fillable {
         return r;
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.contents.len() == 0
+    }
+
     pub fn size(&self) -> u64 {
         return self.size;
     }
