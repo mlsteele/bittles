@@ -146,9 +146,13 @@ fn run_progress_report(log: Logger, handle: reactor::Handle, dstate_c: AM<Downlo
 
 /// Returns whether to continue looping.
 fn progress_report(log: Logger, dstate: &mut DownloaderState) -> Result<bool> {
-    let bar = dstate.manifest.manifest.progress_bar();
-    info!(log, "progress report: {}", bar);
-    Ok(true)
+    // let bar = dstate.manifest.manifest.progress_bar();
+    // info!(log, "progress report: {}", bar);
+    let p = dstate.manifest.manifest.amount_verified();
+    info!(log, "progress: {:03}%", p * (100 as f64));
+
+    let go = !dstate.manifest.manifest.all_verified();
+    Ok(go)
 }
 
 /// Connect and run a peer.

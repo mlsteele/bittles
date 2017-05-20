@@ -168,6 +168,11 @@ impl Manifest {
         None
     }
 
+    // Amount of data verified in [0,1].
+    pub fn amount_verified(&self) -> f64 {
+        (self.verified.iter().filter(|v| **v).count() as f64) / (self.verified.len() as f64)
+    }
+
     pub fn progress_bar(&self) -> String {
         let present = &self.present;
         let verified = &self.verified;
