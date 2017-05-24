@@ -157,9 +157,9 @@ impl Manifest {
                         let left = self.present[i].size() - x;
                         let max_length = 1 << 14;
                         return Some(BlockRequest {
-                                        piece: i as u32,
-                                        offset: x as u32,
-                                        length: cmp::min(left as u32, max_length),
+                                        piece: i as u64,
+                                        offset: x as u64,
+                                        length: cmp::min(left as u64, max_length),
                                     });
                     }
                 }
@@ -293,9 +293,9 @@ impl ManifestWithFile {
 
 pub struct BlockRequest {
     /// Piece index
-    pub piece: u32, // (index)
+    pub piece: u64, // (index)
     /// Offset within the piece
-    pub offset: u32, // (begin)
+    pub offset: u64, // (begin)
     /// Length in bytes
-    pub length: u32,
+    pub length: u64,
 }

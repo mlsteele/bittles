@@ -38,6 +38,7 @@ struct DownloaderState {
     manifest: ManifestWithFile,
     peer_states: HashMap<PeerNum, PeerState>,
     next_peer_num: AtomicUsize,
+    outstanding: OutstandingRequestsManager,
 }
 
 type AM<T> = Arc<Mutex<T>>;
@@ -73,6 +74,7 @@ pub fn start<P: AsRef<Path>>(log: Logger, info: MetaInfo, peer_id: PeerID, store
         manifest: manifest,
         peer_states: HashMap::new(),
         next_peer_num: AtomicUsize::new(0),
+        outstanding: OutstandingRequestsManager::new(),
     };
 
     let dstate_c = Arc::new(Mutex::new(dstate));
@@ -190,6 +192,9 @@ fn run_peer(log: Logger,
                         if x.is_none() {
                             warn!(log,  "peer state was missing"; "peer_num" => peer_num)
                         }
+
+                        let n = dstate.outstanding.clear_peer(peer_num);
+                        debug!(log, "cleared outstanding requests: {}", n; "peer_num" => peer_num);
 
                         res
                     })
@@ -371,8 +376,14 @@ fn handle_peer_message(log: &Logger, dstate: &mut DownloaderState, peer_num: Pee
     rstate.temp.nreceived += 1;
     match msg {
         &Message::KeepAlive => {}
-        &Message::Choke => rstate.peer_choking = true,
-        &Message::Unchoke => rstate.peer_choking = false,
+        &Message::Choke => {
+            rstate.peer_choking = true;
+            dstate.outstanding.clear_peer(peer_num);
+        }
+        &Message::Unchoke => {
+            rstate.peer_choking = false;
+            dstate.outstanding.clear_peer(peer_num);
+        }
         &Message::Interested => rstate.peer_interested = true,
         &Message::NotInterested => rstate.peer_interested = false,
         &Message::Bitfield { ref bits } => {
@@ -448,6 +459,7 @@ fn handle_peer_message(log: &Logger, dstate: &mut DownloaderState, peer_num: Pee
         outs.push_back(out);
     }
     if !rstate.temp.waiting && !rstate.peer_choking && rstate.am_interested {
+        warn!(log, "TODO: use outstanding to decide next block");
         match dstate.manifest.manifest.next_desired_block() {
             None => {
                 // No more blocks needed! Unless something fails verification.
@@ -471,10 +483,13 @@ fn handle_peer_message(log: &Logger, dstate: &mut DownloaderState, peer_num: Pee
             }
             Some(desire) => {
                 let out = Message::Request {
-                    piece: desire.piece,
-                    offset: desire.offset,
-                    length: desire.length,
+                    piece: desire.piece as u32,
+                    offset: desire.offset as u32,
+                    length: desire.length as u32,
                 };
+                dstate
+                    .outstanding
+                    .add(peer_num, desire.piece, desire.offset, desire.length);
                 debug!(log, "sending message: {:?}", out);
                 rstate.temp.waiting = true;
                 outs.push_back(out);
