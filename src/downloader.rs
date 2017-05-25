@@ -455,7 +455,6 @@ fn handle_peer_message(log: &Logger, dstate: &mut DownloaderState, peer_num: Pee
                        });
 
             dstate.manifest.store(log)?;
-            rstate.temp.waiting = false;
         }
         &Message::Cancel { .. } => bail!("not implemented"),
         &Message::Port { .. } => {}
@@ -473,33 +472,38 @@ fn handle_peer_message(log: &Logger, dstate: &mut DownloaderState, peer_num: Pee
         rstate.am_interested = true;
         outs.push_back(out);
     }
-    if !rstate.temp.waiting && !rstate.peer_choking && rstate.am_interested {
-        match next_request(log, &mut dstate.manifest, &mut dstate.outstanding, peer_num)? {
-            None => {
-                if dstate.manifest.manifest.is_all_full() {
-                    verify_all(log,
-                               &dstate.info,
-                               &mut dstate.manifest,
-                               &mut dstate.datastore)?;
-
-                    if dstate.manifest.manifest.is_all_verified() {
-                        println!("all pieces verified!");
-                        return Ok(Close);
-                    }
-                } else {
-                    debug!(log, "not requesting")
-                }
+    if !rstate.peer_choking && rstate.am_interested {
+        for safety in 0.. {
+            if safety == 99 {
+                error!(log, "collecting too many requests to send!");
             }
-            Some(desire) => {
-                let out = Message::Request {
-                    piece: desire.piece as u32,
-                    offset: desire.offset as u32,
-                    length: desire.length as u32,
-                };
-                dstate.outstanding.add(peer_num, desire);
-                debug!(log, "sending message: {:?}", out);
-                rstate.temp.waiting = true;
-                outs.push_back(out);
+            match next_request(log, &mut dstate.manifest, &mut dstate.outstanding, peer_num)? {
+                None => {
+                    if dstate.manifest.manifest.is_all_full() {
+                        verify_all(log,
+                                   &dstate.info,
+                                   &mut dstate.manifest,
+                                   &mut dstate.datastore)?;
+
+                        if dstate.manifest.manifest.is_all_verified() {
+                            println!("all pieces verified!");
+                            return Ok(Close);
+                        }
+                    } else {
+                        debug!(log, "not requesting")
+                    }
+                    break;
+                }
+                Some(desire) => {
+                    let out = Message::Request {
+                        piece: desire.piece as u32,
+                        offset: desire.offset as u32,
+                        length: desire.length as u32,
+                    };
+                    dstate.outstanding.add(peer_num, desire);
+                    debug!(log, "sending message: {:?}", out);
+                    outs.push_back(out);
+                }
             }
         }
     }
@@ -512,23 +516,34 @@ fn handle_peer_message(log: &Logger, dstate: &mut DownloaderState, peer_num: Pee
 }
 
 /// Decide the next block to request from a peer.
-fn next_request(_log: &Logger, manifest: &mut ManifestWithFile, outstanding: &mut OutstandingRequestsManager, peer_num: PeerNum) -> Result<Option<BlockRequest>> {
+fn next_request(log: &Logger, manifest: &mut ManifestWithFile, outstanding: &mut OutstandingRequestsManager, peer_num: PeerNum) -> Result<Option<BlockRequest>> {
     const MAX_OUTSTANDING_PER_PEER: u64 = 5;
     const MAX_OUTSTANDING_PER_BLOCK: u64 = 1;
     if outstanding.get_num(peer_num) > MAX_OUTSTANDING_PER_PEER {
         // Already plenty of requests outstanding on this peer.
         return Ok(None);
     }
-    if let Some(desire) = manifest.manifest.next_desired_block() {
-        // TODO: allow multiple outstanding per block, maybe, and if so remember to cancel upon receive.
-        let ps = outstanding.get_peers(desire);
-        if ps.len() > MAX_OUTSTANDING_PER_PEER as usize {
-            bail!("TODO: implement request desire probing (1)");
+    let mut after = None;
+    for safety in 0.. {
+        if safety == 99 {
+            error!(log, "loop has gone too far looking for next request!");
         }
-        if ps.contains(&peer_num) {
-            bail!("TODO: implement request desire probing (2)");
+
+        manifest.manifest.next_desired_block(after);
+        if let Some(desire) = manifest.manifest.next_desired_block(after) {
+            // TODO: allow multiple outstanding per block,maybe, and if so remember to cancel upon receive.
+            let ps = outstanding.get_peers(desire);
+            if ps.len() > MAX_OUTSTANDING_PER_PEER as usize {
+                after = Some(desire);
+                continue;
+            }
+            if ps.contains(&peer_num) {
+                after = Some(desire);
+                continue;
+            }
+            return Ok(Some(desire));
         }
-        return Ok(Some(desire));
+        return Ok(None);
     }
     Ok(None)
 }
@@ -574,8 +589,6 @@ pub struct PeerState {
 #[derive(Debug, Default)]
 pub struct TempState {
     nreceived: u64,
-    requested: bool,
-    waiting: bool,
 }
 
 impl PeerState {

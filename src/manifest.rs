@@ -154,8 +154,10 @@ impl Manifest {
 
     /// Get the next desired block.
     /// This is the first block that has not been added.
-    pub fn next_desired_block(&self) -> Option<BlockRequest> {
-        for i in 0..self.size_info.num_pieces() as usize {
+    pub fn next_desired_block(&self, after: Option<BlockRequest>) -> Option<BlockRequest> {
+        panic!("TODO: return next desired block after after");
+        let start_piece = after.map(|x| x.piece - 1).unwrap_or(0) as usize;
+        for i in start_piece..self.size_info.num_pieces() as usize {
             let p = &self.present[i];
             if !p.is_full() {
                 if let Some(x) = self.present[i].first_unfilled() {
