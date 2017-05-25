@@ -83,7 +83,7 @@ pub fn start<P: AsRef<Path>>(log: Logger, info: MetaInfo, peer_id: PeerID, store
 
     top_futures.push(run_progress_report(log.clone(), handle.clone(), dstate_c.clone()));
 
-    let n_start_peers = cmp::min(10, tracker_res.peers.len());
+    let n_start_peers = cmp::min(1, tracker_res.peers.len());
     debug!(log,
            "using {}/{} available peers",
            n_start_peers,
@@ -368,6 +368,8 @@ fn drive_peer(log: &Logger, dstate_c: AM<DownloaderState>, handle: &Handle, stre
 fn handle_peer_message(log: &Logger, dstate: &mut DownloaderState, peer_num: PeerNum, msg: &Message) -> Result<HandlePeerMessageRes> {
     use self::HandlePeerMessageRes::*;
 
+    info!(log, "n-out {}", dstate.outstanding.get_num(peer_num));
+
     let rstate = dstate
         .peer_states
         .get_mut(&peer_num)
@@ -443,6 +445,15 @@ fn handle_peer_message(log: &Logger, dstate: &mut DownloaderState, peer_num: Pee
                 }
             }
 
+            dstate
+                .outstanding
+                .clear(peer_num,
+                       BlockRequest {
+                           piece: piece as u64,
+                           offset: offset as u64,
+                           length: block.len() as u64,
+                       });
+
             dstate.manifest.store(log)?;
             rstate.temp.waiting = false;
         }
@@ -475,6 +486,8 @@ fn handle_peer_message(log: &Logger, dstate: &mut DownloaderState, peer_num: Pee
                         println!("all pieces verified!");
                         return Ok(Close);
                     }
+                } else {
+                    debug!(log, "not requesting")
                 }
             }
             Some(desire) => {
