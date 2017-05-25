@@ -5,7 +5,7 @@ use futures;
 use futures::{Sink, Stream};
 use futures::future;
 use futures::future::Future;
-use manifest::ManifestWithFile;
+use manifest::{BlockRequest, ManifestWithFile};
 use metainfo::{InfoHash, MetaInfo};
 use peer_protocol;
 use peer_protocol::{BitTorrentPeerCodec, Message, PeerID};
@@ -151,7 +151,7 @@ fn progress_report(log: Logger, dstate: &mut DownloaderState) -> Result<bool> {
     let p = dstate.manifest.manifest.amount_verified();
     info!(log, "progress: {:03}%", p * (100 as f64));
 
-    let go = !dstate.manifest.manifest.all_verified();
+    let go = !dstate.manifest.manifest.is_all_verified();
     Ok(go)
 }
 
@@ -463,26 +463,18 @@ fn handle_peer_message(log: &Logger, dstate: &mut DownloaderState, peer_num: Pee
         outs.push_back(out);
     }
     if !rstate.temp.waiting && !rstate.peer_choking && rstate.am_interested {
-        warn!(log, "TODO: use outstanding to decide next block");
-        match dstate.manifest.manifest.next_desired_block() {
+        match next_request(log, &mut dstate.manifest, &mut dstate.outstanding, peer_num)? {
             None => {
-                // No more blocks needed! Unless something fails verification.
-                for piece in dstate.manifest.manifest.needs_verify() {
-                    let expected_hash = dstate.info.piece_hashes[piece as usize].clone();
-                    info!(log, "verifying piece: {}", piece);
-                    if let Some(verified) = dstate.datastore.verify_piece(piece, expected_hash)? {
-                        info!(log, "verified piece: {}", verified.piece);
-                        dstate.manifest.manifest.mark_verified(verified)?;
-                    } else {
-                        info!(log, "flunked piece: {}", piece);
-                        dstate.manifest.manifest.remove_piece(piece)?;
-                    }
-                }
-                dstate.manifest.store(log)?;
+                if dstate.manifest.manifest.is_all_full() {
+                    verify_all(log,
+                               &dstate.info,
+                               &mut dstate.manifest,
+                               &mut dstate.datastore)?;
 
-                if dstate.manifest.manifest.all_verified() {
-                    println!("all pieces verified!");
-                    return Ok(Close);
+                    if dstate.manifest.manifest.is_all_verified() {
+                        println!("all pieces verified!");
+                        return Ok(Close);
+                    }
                 }
             }
             Some(desire) => {
@@ -491,9 +483,7 @@ fn handle_peer_message(log: &Logger, dstate: &mut DownloaderState, peer_num: Pee
                     offset: desire.offset as u32,
                     length: desire.length as u32,
                 };
-                dstate
-                    .outstanding
-                    .add(peer_num, desire.piece, desire.offset, desire.length);
+                dstate.outstanding.add(peer_num, desire);
                 debug!(log, "sending message: {:?}", out);
                 rstate.temp.waiting = true;
                 outs.push_back(out);
@@ -506,6 +496,48 @@ fn handle_peer_message(log: &Logger, dstate: &mut DownloaderState, peer_num: Pee
     } else {
         Ok(Pass)
     }
+}
+
+/// Decide the next block to request from a peer.
+fn next_request(_log: &Logger, manifest: &mut ManifestWithFile, outstanding: &mut OutstandingRequestsManager, peer_num: PeerNum) -> Result<Option<BlockRequest>> {
+    const MAX_OUTSTANDING_PER_PEER: u64 = 5;
+    const MAX_OUTSTANDING_PER_BLOCK: u64 = 1;
+    if outstanding.get_num(peer_num) > MAX_OUTSTANDING_PER_PEER {
+        // Already plenty of requests outstanding on this peer.
+        return Ok(None);
+    }
+    if let Some(desire) = manifest.manifest.next_desired_block() {
+        // TODO: allow multiple outstanding per block, maybe, and if so remember to cancel upon receive.
+        let ps = outstanding.get_peers(desire);
+        if ps.len() > MAX_OUTSTANDING_PER_PEER as usize {
+            bail!("TODO: implement request desire probing (1)");
+        }
+        if ps.contains(&peer_num) {
+            bail!("TODO: implement request desire probing (2)");
+        }
+        return Ok(Some(desire));
+    }
+    Ok(None)
+}
+
+/// Call this when the download might be done.
+/// Run verification on the data, save the manifest.
+/// If this function returns Ok that does _not_ mean all verified.
+fn verify_all(log: &Logger, info: &MetaInfo, manifest: &mut ManifestWithFile, datastore: &mut DataStore) -> Result<()> {
+    // No more blocks needed! Unless something fails verification.
+    for piece in manifest.manifest.needs_verify() {
+        let expected_hash = info.piece_hashes[piece as usize].clone();
+        info!(log, "verifying piece: {}", piece);
+        if let Some(verified) = datastore.verify_piece(piece, expected_hash)? {
+            info!(log, "verified piece: {}", verified.piece);
+            manifest.manifest.mark_verified(verified)?;
+        } else {
+            info!(log, "flunked piece: {}", piece);
+            manifest.manifest.remove_piece(piece)?;
+        }
+    }
+    manifest.store(log)?;
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -547,35 +579,78 @@ impl PeerState {
     }
 }
 
-struct OutstandingRequestsManager {}
+struct OutstandingRequestsManager {
+    /// Blocks for each peer.
+    peer_blocks: HashMap<PeerNum, HashSet<BlockRequest>>,
+    /// Peers for each block
+    block_peers: HashMap<BlockRequest, HashSet<PeerNum>>,
+}
 
 impl OutstandingRequestsManager {
     fn new() -> Self {
-        Self {}
+        Self {
+            peer_blocks: HashMap::new(),
+            block_peers: HashMap::new(),
+        }
     }
 
-    fn add(&mut self, peer: PeerNum, piece: u64, offset: u64, length: u64) {
-        unimplemented!();
+    fn add(&mut self, peer: PeerNum, block: BlockRequest) {
+        self.peer_blocks
+            .entry(peer)
+            .or_insert(HashSet::new())
+            .insert(block);
+
+        self.block_peers
+            .entry(block)
+            .or_insert(HashSet::new())
+            .insert(peer);
     }
 
     /// Returns the number of cleared items: 0 or 1.
-    fn clear(&mut self, peer: PeerNum, piece: u64, offset: u64, length: u64) -> usize {
-        unimplemented!();
+    fn clear(&mut self, peer: PeerNum, block: BlockRequest) -> usize {
+        if let Some(peers) = self.block_peers.get_mut(&block) {
+            peers.remove(&peer);
+
+            if let Some(blocks) = self.peer_blocks.get_mut(&peer) {
+                blocks.remove(&block);
+            }
+
+            return 1;
+        } else {
+            return 0;
+        }
     }
 
     /// Clear all outstanding requests for a peer.
     /// Returns the number of cleared items.
     fn clear_peer(&mut self, peer: PeerNum) -> usize {
-        unimplemented!();
+        if let Some(blocks) = self.peer_blocks.remove(&peer) {
+            let mut x = 0;
+            for block in blocks.iter() {
+                if let Some(peers) = self.block_peers.get_mut(&block) {
+                    peers.remove(&peer);
+                    x += 1;
+                }
+            }
+            return x;
+        } else {
+            return 0;
+        }
     }
 
     /// Get the set of peers with outstanding requests for the block
-    fn get_peers(&self, piece: u64, offset: u64, length: u64) -> (HashSet<PeerNum>) {
-        unimplemented!();
+    fn get_peers(&self, block: BlockRequest) -> HashSet<PeerNum> {
+        return self.block_peers
+                   .get(&block)
+                   .map(|x| x.clone())
+                   .unwrap_or_else(|| HashSet::new());
     }
 
     /// Get the number of requests outstanding for the peer
     fn get_num(&self, peer: PeerNum) -> u64 {
-        unimplemented!();
+        return self.peer_blocks
+                   .get(&peer)
+                   .map(|x| x.len() as u64)
+                   .unwrap_or(0);
     }
 }

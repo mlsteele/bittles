@@ -131,6 +131,12 @@ impl Manifest {
         Ok(self.present[piece as usize].is_full())
     }
 
+    /// Whether all data has been added.
+    /// NOT whether it's been verified.
+    pub fn is_all_full(&self) -> bool {
+        self.present.iter().all(|x| x.is_full())
+    }
+
     /// List of pieces that still need to be verified.
     pub fn needs_verify(&self) -> Vec<u64> {
         self.verified
@@ -142,7 +148,7 @@ impl Manifest {
     }
 
     /// Whether all data has been verified.
-    pub fn all_verified(&self) -> bool {
+    pub fn is_all_verified(&self) -> bool {
         return self.needs_verify().len() == 0;
     }
 
@@ -296,6 +302,7 @@ impl ManifestWithFile {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BlockRequest {
     /// Piece index
     pub piece: u64, // (index)
