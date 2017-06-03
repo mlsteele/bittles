@@ -83,7 +83,7 @@ pub fn start<P: AsRef<Path>>(log: Logger, info: MetaInfo, peer_id: PeerID, store
 
     top_futures.push(run_progress_report(log.clone(), handle.clone(), dstate_c.clone()));
 
-    let n_start_peers = cmp::min(1, tracker_res.peers.len());
+    let n_start_peers = cmp::min(15, tracker_res.peers.len());
     debug!(log,
            "using {}/{} available peers",
            n_start_peers,
@@ -519,7 +519,7 @@ fn handle_peer_message(log: &Logger, dstate: &mut DownloaderState, peer_num: Pee
 fn next_request(log: &Logger, manifest: &mut ManifestWithFile, outstanding: &mut OutstandingRequestsManager, peer_num: PeerNum) -> Result<Option<BlockRequest>> {
     const MAX_OUTSTANDING_PER_PEER: u64 = 5;
     const MAX_OUTSTANDING_PER_BLOCK: u64 = 1;
-    if outstanding.get_num(peer_num) > MAX_OUTSTANDING_PER_PEER {
+    if outstanding.get_num(peer_num) >= MAX_OUTSTANDING_PER_PEER {
         // Already plenty of requests outstanding on this peer.
         return Ok(None);
     }
@@ -529,11 +529,10 @@ fn next_request(log: &Logger, manifest: &mut ManifestWithFile, outstanding: &mut
             error!(log, "loop has gone too far looking for next request!");
         }
 
-        manifest.manifest.next_desired_block(after);
-        if let Some(desire) = manifest.manifest.next_desired_block(after) {
-            // TODO: allow multiple outstanding per block,maybe, and if so remember to cancel upon receive.
+        if let Some(desire) = manifest.manifest.next_desired_block(log, after) {
+            // TODO: allow multiple outstanding per block, maybe, and if so remember to cancel upon receive.
             let ps = outstanding.get_peers(desire);
-            if ps.len() > MAX_OUTSTANDING_PER_PEER as usize {
+            if ps.len() > MAX_OUTSTANDING_PER_BLOCK as usize {
                 after = Some(desire);
                 continue;
             }

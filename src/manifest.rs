@@ -154,25 +154,64 @@ impl Manifest {
 
     /// Get the next desired block.
     /// This is the first block that has not been added.
-    pub fn next_desired_block(&self, after: Option<BlockRequest>) -> Option<BlockRequest> {
-        panic!("TODO: return next desired block after after");
-        let start_piece = after.map(|x| x.piece - 1).unwrap_or(0) as usize;
+    pub fn next_desired_block(&self, log: &Logger, after: Option<BlockRequest>) -> Option<BlockRequest> {
+        let after: BlockRequest = after.unwrap_or_else(|| {
+                                                           BlockRequest {
+                                                               piece: 0,
+                                                               offset: 0,
+                                                               length: 0,
+                                                           }
+                                                       });
+
+        // First piece that might be the one
+        let start_piece = self.size_info
+            .piece_at_point(after.piece, after.offset + after.length) as usize;
+
         for i in start_piece..self.size_info.num_pieces() as usize {
             let p = &self.present[i];
-            if !p.is_full() {
-                if let Some(x) = self.present[i].first_unfilled() {
-                    if x < self.present[i].size() {
-                        let left = self.present[i].size() - x;
-                        let max_length = 1 << 14;
-                        return Some(BlockRequest {
-                                        piece: i as u64,
-                                        offset: x as u64,
-                                        length: cmp::min(left as u64, max_length),
-                                    });
-                    }
+            if p.is_full() {
+                continue;
+            }
+
+            // First byte in the piece to consider
+            let start_in_piece = match after.piece == i as u64 {
+                true => after.offset + after.length,
+                false => 0,
+            };
+
+            let x: Option<u64> = match self.present[i].first_unfilled_starting_at(start_in_piece) {
+                Ok(x) => x,
+                Err(err) => {
+                    warn!(log,
+                          "manifest fault after:{:?} piece:{} sip:{} err:{}",
+                          after,
+                          i,
+                          start_in_piece,
+                          err);
+                    None
+                }
+            };
+
+            if let Some(x) = x {
+                if x < self.present[i].size() {
+                    let left = self.present[i].size() - x;
+                    let max_length = 1 << 14;
+                    return Some(BlockRequest {
+                                    piece: i as u64,
+                                    offset: x as u64,
+                                    length: cmp::min(left as u64, max_length),
+                                });
+                } else {
+                    warn!(log,
+                          "manifest fault after:{:?} piece:{} sip:{} x:{}",
+                          after,
+                          i,
+                          start_in_piece,
+                          x);
                 }
             }
         }
+
         None
     }
 
@@ -304,7 +343,7 @@ impl ManifestWithFile {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BlockRequest {
     /// Piece index
     pub piece: u64, // (index)
