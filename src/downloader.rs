@@ -379,7 +379,7 @@ fn drive_peer(log: &Logger, dstate_c: AM<DownloaderState>, handle: &Handle, stre
 fn handle_peer_message(log: &Logger, dstate: &mut DownloaderState, peer_num: PeerNum, msg: &Message) -> Result<HandlePeerMessageRes> {
     use self::HandlePeerMessageRes::*;
 
-    info!(log, "n-out {}", dstate.outstanding.get_num(peer_num));
+    debug!(log, "n-out {}", dstate.outstanding.get_num(peer_num));
 
     let rstate = dstate
         .peer_states

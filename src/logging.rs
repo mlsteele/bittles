@@ -1,5 +1,5 @@
 use slog;
-use slog::{Drain, Logger};
+use slog::{Drain, Level, Logger};
 use slog_async;
 use slog_term;
 use std::fs;
@@ -30,6 +30,7 @@ pub fn setup() -> Logger {
         let decorator = slog_term::TermDecorator::new().build();
         let drain = slog_term::CompactFormat::new(decorator).build().fuse();
         let drain = slog_async::Async::new(drain).build().fuse();
+        let drain = slog::LevelFilter::new(drain, Level::Info).fuse();
         drain
     };
 
