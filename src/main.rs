@@ -60,12 +60,13 @@ struct Args {
 
 fn main() {
 
-    // Set up loggin
+    // Set up logging
     let decorator = slog_term::TermDecorator::new().build();
     let drain = {
         use slog::Drain;
-        let drain = slog_term::FullFormat::new(decorator).build().fuse();
-        slog_async::Async::new(drain).build().fuse()
+        let drain = slog_term::CompactFormat::new(decorator).build().fuse();
+        let drain = slog_async::Async::new(drain).build().fuse();
+        drain
     };
     let log = slog::Logger::root(drain, o!());
 
