@@ -131,6 +131,12 @@ impl Manifest {
         Ok(self.present[piece as usize].is_full())
     }
 
+    /// Whether all data has been added.
+    /// NOT whether it's been verified.
+    pub fn is_all_full(&self) -> bool {
+        self.present.iter().all(|x| x.is_full())
+    }
+
     /// List of pieces that still need to be verified.
     pub fn needs_verify(&self) -> Vec<u64> {
         self.verified
@@ -142,30 +148,96 @@ impl Manifest {
     }
 
     /// Whether all data has been verified.
-    pub fn all_verified(&self) -> bool {
+    pub fn is_all_verified(&self) -> bool {
         return self.needs_verify().len() == 0;
     }
 
     /// Get the next desired block.
     /// This is the first block that has not been added.
-    pub fn next_desired_block(&self) -> Option<BlockRequest> {
-        for i in 0..self.size_info.num_pieces() as usize {
+    pub fn next_desired_block(&self, log: &Logger, after: Option<BlockRequest>) -> Option<BlockRequest> {
+        let after: BlockRequest = after.unwrap_or_else(|| {
+                                                           BlockRequest {
+                                                               piece: 0,
+                                                               offset: 0,
+                                                               length: 0,
+                                                           }
+                                                       });
+
+        // First piece that might be the one
+        let start_piece = self.size_info
+            .piece_at_point(after.piece, after.offset + after.length) as usize;
+
+        for i in start_piece..self.size_info.num_pieces() as usize {
             let p = &self.present[i];
-            if !p.is_full() {
-                if let Some(x) = self.present[i].first_unfilled() {
-                    if x < self.present[i].size() {
-                        let left = self.present[i].size() - x;
-                        let max_length = 1 << 14;
-                        return Some(BlockRequest {
-                                        piece: i as u32,
-                                        offset: x as u32,
-                                        length: cmp::min(left as u32, max_length),
-                                    });
-                    }
+            if p.is_full() {
+                continue;
+            }
+
+            // First byte in the piece to consider
+            let start_in_piece = match after.piece == i as u64 {
+                true => after.offset + after.length,
+                false => 0,
+            };
+
+            if start_in_piece >= p.size() {
+                continue;
+            }
+
+            let x: Option<u64> = match self.present[i].first_unfilled_starting_at(start_in_piece) {
+                Ok(x) => x,
+                Err(err) => {
+                    warn!(log,
+                          "manifest fault after:{:?} piece:{} sip:{} err:{}",
+                          after,
+                          i,
+                          start_in_piece,
+                          err);
+                    None
+                }
+            };
+
+            if let Some(x) = x {
+                if x < self.present[i].size() {
+                    let left = self.present[i].size() - x;
+                    let max_length = 1 << 14;
+                    return Some(BlockRequest {
+                                    piece: i as u64,
+                                    offset: x as u64,
+                                    length: cmp::min(left as u64, max_length),
+                                });
+                } else {
+                    warn!(log,
+                          "manifest fault after:{:?} piece:{} sip:{} x:{}",
+                          after,
+                          i,
+                          start_in_piece,
+                          x);
                 }
             }
         }
+
         None
+    }
+
+    // Amount of data verified in [0,1].
+    pub fn amount_verified(&self) -> f64 {
+        (self.verified.iter().filter(|v| **v).count() as f64) / (self.verified.len() as f64)
+    }
+
+    pub fn progress_bar(&self) -> String {
+        let present = &self.present;
+        let verified = &self.verified;
+        present
+            .iter()
+            .zip(verified)
+            .map(|(p, v)| match (!p.is_empty(), *v) {
+                     (false, false) => "_",
+                     (true, false) => ".",
+                     (true, true) => "=",
+                     (false, true) => "!",
+                 })
+            .collect::<Vec<_>>()
+            .concat()
     }
 }
 
@@ -275,11 +347,12 @@ impl ManifestWithFile {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BlockRequest {
     /// Piece index
-    pub piece: u32, // (index)
+    pub piece: u64, // (index)
     /// Offset within the piece
-    pub offset: u32, // (begin)
+    pub offset: u64, // (begin)
     /// Length in bytes
-    pub length: u32,
+    pub length: u64,
 }

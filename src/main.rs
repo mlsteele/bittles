@@ -26,16 +26,17 @@ extern crate tokio_core;
 extern crate tokio_io;
 extern crate bytes;
 
-mod downloader;
 mod datastore;
+mod downloader;
 mod errors;
-mod metainfo;
+mod fillable;
+mod logging;
 mod manifest;
+mod metainfo;
+mod peer_protocol;
 mod tracker;
 #[macro_use]
 mod util;
-mod peer_protocol;
-mod fillable;
 
 use bip_bencode::{BDecodeOpt, BencodeRef};
 use docopt::Docopt;
@@ -59,15 +60,7 @@ struct Args {
 }
 
 fn main() {
-
-    // Set up loggin
-    let decorator = slog_term::TermDecorator::new().build();
-    let drain = {
-        use slog::Drain;
-        let drain = slog_term::FullFormat::new(decorator).build().fuse();
-        slog_async::Async::new(drain).build().fuse()
-    };
-    let log = slog::Logger::root(drain, o!());
+    let log = logging::setup();
 
     info!(log, "startup");
 

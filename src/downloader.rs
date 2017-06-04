@@ -5,13 +5,13 @@ use futures;
 use futures::{Sink, Stream};
 use futures::future;
 use futures::future::Future;
-use manifest::ManifestWithFile;
+use manifest::{BlockRequest, ManifestWithFile};
 use metainfo::{InfoHash, MetaInfo};
 use peer_protocol;
 use peer_protocol::{BitTorrentPeerCodec, Message, PeerID};
 use slog::Logger;
 use std::cmp;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::default::Default;
 use std::net::SocketAddr;
 use std::path::Path;
@@ -38,6 +38,7 @@ struct DownloaderState {
     manifest: ManifestWithFile,
     peer_states: HashMap<PeerNum, PeerState>,
     next_peer_num: AtomicUsize,
+    outstanding: OutstandingRequestsManager,
 }
 
 type AM<T> = Arc<Mutex<T>>;
@@ -67,24 +68,28 @@ pub fn start<P: AsRef<Path>>(log: Logger, info: MetaInfo, peer_id: PeerID, store
     let num_pieces = info.num_pieces() as u64;
     let info_hash = info.info_hash.clone();
 
-    let n_start_peers = cmp::min(10, tracker_res.peers.len());
-    debug!(log,
-           "using {}/{} available peers",
-           n_start_peers,
-           tracker_res.peers.len());
-
     let dstate = DownloaderState {
         info: info,
         datastore: datastore,
         manifest: manifest,
         peer_states: HashMap::new(),
         next_peer_num: AtomicUsize::new(0),
+        outstanding: OutstandingRequestsManager::new(),
     };
 
     let dstate_c = Arc::new(Mutex::new(dstate));
 
     let mut top_futures: Vec<BxFuture<(), Error>> = Vec::new();
 
+    top_futures.push(run_progress_report(log.clone(), handle.clone(), dstate_c.clone()));
+
+    let n_start_peers = cmp::min(15, tracker_res.peers.len());
+    debug!(log,
+           "using {}/{} available peers",
+           n_start_peers,
+           tracker_res.peers.len());
+
+    // Connect to an initial set of peers
     for peer in tracker_res.peers[..n_start_peers].iter() {
         let peer_num = {
             let dstate = dstate_c.lock().unwrap();
@@ -110,6 +115,55 @@ pub fn start<P: AsRef<Path>>(log: Logger, info: MetaInfo, peer_id: PeerID, store
 
     core.run(future_root)?;
     Ok(())
+}
+
+
+/// Run a loop that prints a progress report occasionally.
+fn run_progress_report(log: Logger, handle: reactor::Handle, dstate_c: AM<DownloaderState>) -> BxFuture<(), Error> {
+    use futures::future::Loop::{Break, Continue};
+
+    future::loop_fn((log, handle, dstate_c), |(log, handle, dstate_c)| {
+        let duration = Duration::from_millis(500);
+        match reactor::Timeout::new(duration, &handle) {
+            Err(err) => future::err(Into::<Error>::into(err)).bxed(),
+            Ok(timeout) => timeout
+                .map_err(|e| e.into())
+                .and_then(|()| {
+                    let pres = {
+                        let mut dstate = dstate_c.lock().unwrap();
+                        progress_report(log.clone(), &mut dstate)
+                    };
+                    match pres {
+                        Err(err) => Err(Into::<Error>::into(err)),
+                        Ok(true) => Ok(Continue((log, handle, dstate_c))),
+                        Ok(false) => Ok(Break(())),
+                    }
+                }).bxed(),
+        }
+    })
+            .bxed()
+}
+
+/// Returns whether to continue looping.
+fn progress_report(log: Logger, dstate: &mut DownloaderState) -> Result<bool> {
+    let chokers = dstate
+        .peer_states
+        .iter()
+        .filter(|&(ref _k, ref v)| v.peer_choking)
+        .count();
+    let n_peers = dstate.peer_states.len();
+
+    // let bar = dstate.manifest.manifest.progress_bar();
+    // info!(log, "progress report: {}", bar);
+    let p = dstate.manifest.manifest.amount_verified();
+    info!(log,
+          "progress: {:03}%  chokers:{}/{}",
+          p * (100 as f64),
+          chokers,
+          n_peers);
+
+    let go = !dstate.manifest.manifest.is_all_verified();
+    Ok(go)
 }
 
 /// Connect and run a peer.
@@ -153,6 +207,9 @@ fn run_peer(log: Logger,
                         if x.is_none() {
                             warn!(log,  "peer state was missing"; "peer_num" => peer_num)
                         }
+
+                        let n = dstate.outstanding.clear_peer(peer_num);
+                        debug!(log, "cleared outstanding requests: {}", n; "peer_num" => peer_num);
 
                         res
                     })
@@ -322,6 +379,8 @@ fn drive_peer(log: &Logger, dstate_c: AM<DownloaderState>, handle: &Handle, stre
 fn handle_peer_message(log: &Logger, dstate: &mut DownloaderState, peer_num: PeerNum, msg: &Message) -> Result<HandlePeerMessageRes> {
     use self::HandlePeerMessageRes::*;
 
+    info!(log, "n-out {}", dstate.outstanding.get_num(peer_num));
+
     let rstate = dstate
         .peer_states
         .get_mut(&peer_num)
@@ -334,8 +393,14 @@ fn handle_peer_message(log: &Logger, dstate: &mut DownloaderState, peer_num: Pee
     rstate.temp.nreceived += 1;
     match msg {
         &Message::KeepAlive => {}
-        &Message::Choke => rstate.peer_choking = true,
-        &Message::Unchoke => rstate.peer_choking = false,
+        &Message::Choke => {
+            rstate.peer_choking = true;
+            dstate.outstanding.clear_peer(peer_num);
+        }
+        &Message::Unchoke => {
+            rstate.peer_choking = false;
+            dstate.outstanding.clear_peer(peer_num);
+        }
         &Message::Interested => rstate.peer_interested = true,
         &Message::NotInterested => rstate.peer_interested = false,
         &Message::Bitfield { ref bits } => {
@@ -391,8 +456,16 @@ fn handle_peer_message(log: &Logger, dstate: &mut DownloaderState, peer_num: Pee
                 }
             }
 
+            dstate
+                .outstanding
+                .clear(peer_num,
+                       BlockRequest {
+                           piece: piece as u64,
+                           offset: offset as u64,
+                           length: block.len() as u64,
+                       });
+
             dstate.manifest.store(log)?;
-            rstate.temp.waiting = false;
         }
         &Message::Cancel { .. } => bail!("not implemented"),
         &Message::Port { .. } => {}
@@ -410,37 +483,40 @@ fn handle_peer_message(log: &Logger, dstate: &mut DownloaderState, peer_num: Pee
         rstate.am_interested = true;
         outs.push_back(out);
     }
-    if !rstate.temp.waiting && !rstate.peer_choking && rstate.am_interested {
-        match dstate.manifest.manifest.next_desired_block() {
-            None => {
-                // No more blocks needed! Unless something fails verification.
-                for piece in dstate.manifest.manifest.needs_verify() {
-                    let expected_hash = dstate.info.piece_hashes[piece as usize].clone();
-                    info!(log, "verifying piece: {}", piece);
-                    if let Some(verified) = dstate.datastore.verify_piece(piece, expected_hash)? {
-                        info!(log, "verified piece: {}", verified.piece);
-                        dstate.manifest.manifest.mark_verified(verified)?;
-                    } else {
-                        info!(log, "flunked piece: {}", piece);
-                        dstate.manifest.manifest.remove_piece(piece)?;
-                    }
-                }
-                dstate.manifest.store(log)?;
-
-                if dstate.manifest.manifest.all_verified() {
-                    println!("all pieces verified!");
-                    return Ok(Close);
-                }
+    if !rstate.peer_choking && rstate.am_interested {
+        for safety in 0.. {
+            if safety == 99 {
+                error!(log, "collecting too many requests to send!");
             }
-            Some(desire) => {
-                let out = Message::Request {
-                    piece: desire.piece,
-                    offset: desire.offset,
-                    length: desire.length,
-                };
-                debug!(log, "sending message: {:?}", out);
-                rstate.temp.waiting = true;
-                outs.push_back(out);
+            match next_request(log, &mut dstate.manifest, &mut dstate.outstanding, peer_num)? {
+                None => {
+                    if dstate.manifest.manifest.is_all_full() {
+                        verify_all(log,
+                                   &dstate.info,
+                                   &mut dstate.manifest,
+                                   &mut dstate.datastore)?;
+
+                        if dstate.manifest.manifest.is_all_verified() {
+                            println!("all pieces verified!");
+                            return Ok(Close);
+                        }
+                    } else {
+                        if safety == 0 {
+                            debug!(log, "not requesting");
+                        }
+                    }
+                    break;
+                }
+                Some(desire) => {
+                    let out = Message::Request {
+                        piece: desire.piece as u32,
+                        offset: desire.offset as u32,
+                        length: desire.length as u32,
+                    };
+                    dstate.outstanding.add(peer_num, desire);
+                    debug!(log, "sending message: {:?}", out);
+                    outs.push_back(out);
+                }
             }
         }
     }
@@ -450,6 +526,58 @@ fn handle_peer_message(log: &Logger, dstate: &mut DownloaderState, peer_num: Pee
     } else {
         Ok(Pass)
     }
+}
+
+/// Decide the next block to request from a peer.
+fn next_request(log: &Logger, manifest: &mut ManifestWithFile, outstanding: &mut OutstandingRequestsManager, peer_num: PeerNum) -> Result<Option<BlockRequest>> {
+    const MAX_OUTSTANDING_PER_PEER: u64 = 5;
+    const MAX_OUTSTANDING_PER_BLOCK: u64 = 1;
+    if outstanding.get_num(peer_num) >= MAX_OUTSTANDING_PER_PEER {
+        // Already plenty of requests outstanding on this peer.
+        return Ok(None);
+    }
+    let mut after = None;
+    for safety in 0.. {
+        if safety == 99 {
+            error!(log, "loop has gone too far looking for next request!");
+        }
+
+        if let Some(desire) = manifest.manifest.next_desired_block(log, after) {
+            // TODO: allow multiple outstanding per block, maybe, and if so remember to cancel upon receive.
+            let ps = outstanding.get_peers(desire);
+            if ps.len() > MAX_OUTSTANDING_PER_BLOCK as usize {
+                after = Some(desire);
+                continue;
+            }
+            if ps.contains(&peer_num) {
+                after = Some(desire);
+                continue;
+            }
+            return Ok(Some(desire));
+        }
+        return Ok(None);
+    }
+    Ok(None)
+}
+
+/// Call this when the download might be done.
+/// Run verification on the data, save the manifest.
+/// If this function returns Ok that does _not_ mean all verified.
+fn verify_all(log: &Logger, info: &MetaInfo, manifest: &mut ManifestWithFile, datastore: &mut DataStore) -> Result<()> {
+    // No more blocks needed! Unless something fails verification.
+    for piece in manifest.manifest.needs_verify() {
+        let expected_hash = info.piece_hashes[piece as usize].clone();
+        info!(log, "verifying piece: {}", piece);
+        if let Some(verified) = datastore.verify_piece(piece, expected_hash)? {
+            info!(log, "verified piece: {}", verified.piece);
+            manifest.manifest.mark_verified(verified)?;
+        } else {
+            info!(log, "flunked piece: {}", piece);
+            manifest.manifest.remove_piece(piece)?;
+        }
+    }
+    manifest.store(log)?;
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -473,8 +601,6 @@ pub struct PeerState {
 #[derive(Debug, Default)]
 pub struct TempState {
     nreceived: u64,
-    requested: bool,
-    waiting: bool,
 }
 
 impl PeerState {
@@ -488,5 +614,81 @@ impl PeerState {
             has: Fillable::new(num_pieces),
             temp: TempState::default(),
         }
+    }
+}
+
+struct OutstandingRequestsManager {
+    /// Blocks for each peer.
+    peer_blocks: HashMap<PeerNum, HashSet<BlockRequest>>,
+    /// Peers for each block
+    block_peers: HashMap<BlockRequest, HashSet<PeerNum>>,
+}
+
+impl OutstandingRequestsManager {
+    fn new() -> Self {
+        Self {
+            peer_blocks: HashMap::new(),
+            block_peers: HashMap::new(),
+        }
+    }
+
+    fn add(&mut self, peer: PeerNum, block: BlockRequest) {
+        self.peer_blocks
+            .entry(peer)
+            .or_insert(HashSet::new())
+            .insert(block);
+
+        self.block_peers
+            .entry(block)
+            .or_insert(HashSet::new())
+            .insert(peer);
+    }
+
+    /// Returns the number of cleared items: 0 or 1.
+    fn clear(&mut self, peer: PeerNum, block: BlockRequest) -> usize {
+        if let Some(peers) = self.block_peers.get_mut(&block) {
+            peers.remove(&peer);
+
+            if let Some(blocks) = self.peer_blocks.get_mut(&peer) {
+                blocks.remove(&block);
+            }
+
+            return 1;
+        } else {
+            return 0;
+        }
+    }
+
+    /// Clear all outstanding requests for a peer.
+    /// Returns the number of cleared items.
+    fn clear_peer(&mut self, peer: PeerNum) -> usize {
+        if let Some(blocks) = self.peer_blocks.remove(&peer) {
+            let mut x = 0;
+            for block in blocks.iter() {
+                if let Some(peers) = self.block_peers.get_mut(&block) {
+                    peers.remove(&peer);
+                    x += 1;
+                }
+            }
+            return x;
+        } else {
+            return 0;
+        }
+    }
+
+    /// Get the set of peers with outstanding requests for the block
+    fn get_peers(&self, block: BlockRequest) -> HashSet<PeerNum> {
+        return self.block_peers
+                   .get(&block)
+                   .map(|x| x.clone())
+                   .unwrap_or_else(|| HashSet::new());
+    }
+
+    /// Get the number of requests outstanding for the peer
+    fn get_num(&self, peer: PeerNum) -> u64 {
+        return self.peer_blocks
+                   .get(&peer)
+                   .map(|x| x.len() as u64)
+                   .unwrap_or(0);
     }
 }
