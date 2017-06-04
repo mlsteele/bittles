@@ -26,16 +26,17 @@ extern crate tokio_core;
 extern crate tokio_io;
 extern crate bytes;
 
-mod downloader;
 mod datastore;
+mod downloader;
 mod errors;
-mod metainfo;
+mod fillable;
+mod logging;
 mod manifest;
+mod metainfo;
+mod peer_protocol;
 mod tracker;
 #[macro_use]
 mod util;
-mod peer_protocol;
-mod fillable;
 
 use bip_bencode::{BDecodeOpt, BencodeRef};
 use docopt::Docopt;
@@ -44,9 +45,7 @@ use manifest::*;
 use metainfo::*;
 use peer_protocol::PeerID;
 use ring::rand::SystemRandom;
-use slog::Drain;
 use slog::Logger;
-use std::fs;
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
@@ -61,31 +60,7 @@ struct Args {
 }
 
 fn main() {
-
-    // Set up logging
-    let log_path = "bittles.log";
-    let file = fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open(log_path)
-        .unwrap();
-
-    let decorator = slog_term::PlainSyncDecorator::new(file);
-    let drain = {
-        let drain = slog_term::FullFormat::new(decorator).build().fuse();
-        let drain = slog_async::Async::new(drain).build().fuse();
-        drain
-    };
-    let log = slog::Logger::root(drain, o!());
-
-    // let decorator = slog_term::TermDecorator::new().build();
-    // let drain = {
-    //     let drain = slog_term::CompactFormat::new(decorator).build().fuse();
-    //     let drain = slog_async::Async::new(drain).build().fuse();
-    //     drain
-    // };
-    // let log = slog::Logger::root(drain, o!());
+    let log = logging::setup();
 
     info!(log, "startup");
 
