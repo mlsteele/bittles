@@ -179,6 +179,10 @@ impl Manifest {
                 false => 0,
             };
 
+            if start_in_piece >= p.size() {
+                continue;
+            }
+
             let x: Option<u64> = match self.present[i].first_unfilled_starting_at(start_in_piece) {
                 Ok(x) => x,
                 Err(err) => {

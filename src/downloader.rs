@@ -146,10 +146,21 @@ fn run_progress_report(log: Logger, handle: reactor::Handle, dstate_c: AM<Downlo
 
 /// Returns whether to continue looping.
 fn progress_report(log: Logger, dstate: &mut DownloaderState) -> Result<bool> {
+    let chokers = dstate
+        .peer_states
+        .iter()
+        .filter(|&(ref _k, ref v)| v.peer_choking)
+        .count();
+    let n_peers = dstate.peer_states.len();
+
     // let bar = dstate.manifest.manifest.progress_bar();
     // info!(log, "progress report: {}", bar);
     let p = dstate.manifest.manifest.amount_verified();
-    info!(log, "progress: {:03}%", p * (100 as f64));
+    info!(log,
+          "progress: {:03}%  chokers:{}/{}",
+          p * (100 as f64),
+          chokers,
+          n_peers);
 
     let go = !dstate.manifest.manifest.is_all_verified();
     Ok(go)
@@ -490,7 +501,9 @@ fn handle_peer_message(log: &Logger, dstate: &mut DownloaderState, peer_num: Pee
                             return Ok(Close);
                         }
                     } else {
-                        debug!(log, "not requesting")
+                        if safety == 0 {
+                            debug!(log, "not requesting");
+                        }
                     }
                     break;
                 }
