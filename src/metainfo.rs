@@ -5,6 +5,7 @@ use ring::digest;
 use std;
 use std::fmt;
 use std::str;
+use util::map_try;
 
 pub const INFO_HASH_SIZE: usize = 20;
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -59,7 +60,7 @@ pub enum FileInfo {
 
 #[derive(Debug, Clone)]
 pub struct SubFileInfo {
-    path: String,
+    path: Vec<String>,
     length: u64,
 }
 
@@ -88,6 +89,7 @@ impl fmt::Display for MetaInfo {
                  "    piece_length: {}...{}",
                  self.size_info.non_last_piece_size(),
                  self.size_info.last_piece_size())?;
+        writeln!(f, "    file_info: {:?}", self.file_info)?;
         writeln!(f, "}}")?;
         Ok(())
     }
@@ -169,6 +171,18 @@ impl MetaInfo {
     }
 
     fn load_file_info(info: &BDictAccess<BencodeRef>) -> Result<FileInfo> {
+        let single_res = Self::load_single_file_info(info);
+        let multi_res = Self::load_multi_file_info(info);
+        match (single_res, multi_res) {
+            (Ok(_), Ok(_)) => bail!("torrent is simultaneously single and multi file"),
+            (Ok(x), Err(_)) => Ok(x),
+            (Err(_), Ok(x)) => Ok(x),
+            (Err(e1), Err(e2)) => bail!("single-file:'{}', multi-file:'{}'", e1, e2),
+        }
+    }
+
+    // Returns FileInfo::Single
+    fn load_single_file_info(info: &BDictAccess<BencodeRef>) -> Result<FileInfo> {
         let name = info.lookup("name".as_bytes())
             .ok_or_err("missing 'info.name'")?
             .str()
@@ -180,6 +194,43 @@ impl MetaInfo {
         Ok(FileInfo::Single {
                name: name.to_owned(),
                length: length as u64,
+           })
+    }
+
+    fn load_multi_file_info(info: &BDictAccess<BencodeRef>) -> Result<FileInfo> {
+        let name = info.lookup("name".as_bytes())
+            .ok_or_err("missing 'info.name'")?
+            .str()
+            .ok_or_err("'info.name' not str")?;
+        let files_ben = info.lookup("files".as_bytes())
+            .ok_or_err("missing 'info.files'")?
+            .list()
+            .ok_or_err("'info.files' not list")?;
+        let files: Vec<SubFileInfo> = map_try::<_, SubFileInfo, _, Error, _>(files_ben.into_iter(), |f| {
+            let fdict = f.dict().ok_or("file is not a map")?;
+            let length = fdict
+                .lookup("length".as_bytes())
+                .ok_or_err("file 'length' not found")?
+                .int()
+                .ok_or_err("file 'length' is not an int")?;
+            let path_blist = fdict
+                .lookup("path".as_bytes())
+                .ok_or_err("file 'path' not found")?
+                .list()
+                .ok_or_err("file 'path' is not a list")?;
+            let path: Vec<String> = map_try::<_, String, _, Error, _>(path_blist.into_iter(), |part| {
+                Ok(part.str()
+                       .ok_or_err("file 'path' element is not a string")?
+                       .to_owned())
+            })?;
+            Ok(SubFileInfo {
+                   path: path,
+                   length: length as u64,
+               })
+        })?;
+        Ok(FileInfo::Multi {
+               name: name.to_owned(),
+               files: files,
            })
     }
 

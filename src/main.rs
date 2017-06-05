@@ -106,7 +106,10 @@ fn inner(log: Logger) -> Result<()> {
     let res = BencodeRef::decode(buf.as_slice(), BDecodeOpt::default())
         .chain_err(|| "decode torrent")?;
 
-    let info = MetaInfo::new(res)?;
+    let info = match MetaInfo::new(res) {
+        Ok(x) => x,
+        Err(err) => bail!("invalid torrent file: {}", err),
+    };
     info!(log, "{}", info);
 
     let manifest = Manifest::new(info.clone());

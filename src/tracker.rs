@@ -53,7 +53,7 @@ impl TrackerClient {
             key: None,
             tracker_id: None,
         };
-        self.request(&req)
+        self.request(&req).chain_err(|| "tracker request error")
     }
 
     fn request(&mut self, req: &TrackerRequest) -> Result<TrackerResponse> {

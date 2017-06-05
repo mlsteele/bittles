@@ -55,6 +55,7 @@ pub fn start<P: AsRef<Path>>(log: Logger, info: MetaInfo, peer_id: PeerID, store
     let manifest = ManifestWithFile::load_or_new(log2, info.clone(), manifest_path)?;
     let mut tc = TrackerClient::new(info.clone(), peer_id.clone())?;
 
+    debug!(log, "asking tracker");
     let tracker_res = tc.easy_start()?;
     debug!(log, "tracker res: {:#?}", tracker_res);
     if let Some(reason) = tracker_res.failure_reason {

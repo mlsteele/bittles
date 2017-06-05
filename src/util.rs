@@ -316,3 +316,20 @@ pub fn mkdirp_for_file<P: AsRef<Path>>(file_path: P) -> std::io::Result<()> {
     dir_path.set_file_name("");
     fs::create_dir_all(dir_path)
 }
+
+/// Like map but short circuits on errors.
+/// Not very generic.
+pub fn map_try<A, B, I, E, F>(it: I, mut f: F) -> std::result::Result<Vec<B>, E>
+    where I: Iterator<Item = A>,
+          F: FnMut(A) -> std::result::Result<B, E>
+{
+    it.fold(Ok(Vec::new()), |acc, x| {
+        acc.and_then(|mut acc| match f(x) {
+                         Ok(y) => {
+                             acc.push(y);
+                             Ok(acc)
+                         }
+                         Err(err) => Err(err),
+                     })
+    })
+}
