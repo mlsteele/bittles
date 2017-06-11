@@ -85,7 +85,7 @@ pub fn start<P: AsRef<Path>>(log: Logger, info: MetaInfo, peer_id: PeerID, store
     top_futures.push(run_progress_report(log.clone(), handle.clone(), dstate_c.clone()));
 
     let n_start_peers = cmp::min(15, tracker_res.peers.len());
-    debug!(log,
+    info!(log,
            "using {}/{} available peers",
            n_start_peers,
            tracker_res.peers.len());

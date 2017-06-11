@@ -60,7 +60,8 @@ impl TrackerClient {
         let res = {
             let http_req = self.build_req(req)?;
             let mut http_res = http_req.send()?;
-            self.parse_res(&mut http_res)?
+            self.parse_res(&mut http_res)
+                .chain_err(|| "could not parse tracker response")?
         };
 
         // Store the tracker id if given
@@ -122,10 +123,8 @@ impl TrackerClient {
                    .ok_or("missing 'interval'")?,
                min_interval: lookup_i64(bd, "min interval".as_bytes())?,
                tracker_id: lookup_str(bd, "tracker id".as_bytes())?,
-               complete: lookup_i64(bd, "complete".as_bytes())?
-                   .ok_or("missing 'complete'")?,
-               incomplete: lookup_i64(bd, "incomplete".as_bytes())?
-                   .ok_or("missing 'incomplete'")?,
+               complete: lookup_i64(bd, "complete".as_bytes())?,
+               incomplete: lookup_i64(bd, "incomplete".as_bytes())?,
                peers: self.parse_peers(bd)?, // TODO
            })
     }
@@ -238,8 +237,8 @@ pub struct TrackerResponse {
     /// A string that the client should send back on its next announcements.
     /// If absent and a previous announce sent a tracker id, do not discard the old value; keep using it.
     pub tracker_id: Option<String>,
-    pub complete: i64, // Number of peers with the entire file (seeders)
-    pub incomplete: i64, // Number of non-seeder peers (leechers)
+    pub complete: Option<i64>, // Number of peers with the entire file (seeders)
+    pub incomplete: Option<i64>, // Number of non-seeder peers (leechers)
     pub peers: Vec<Peer>,
 }
 
