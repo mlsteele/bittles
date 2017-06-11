@@ -196,15 +196,14 @@ impl tokio_io::codec::Encoder for BitTorrentPeerCodec {
     fn encode(&mut self, msg: Self::Item, dst: &mut BytesMut) -> std::result::Result<(), Self::Error> {
         type BE = BigEndian;
         use bytes::BufMut;
-        use util::BytesMutEnhanced;
         let message_id = msg.message_id();
         match msg {
             Message::KeepAlive => {
-                dst.ensure(4);
+                dst.reserve(4);
                 dst.put_u32::<BE>(0); // message length
             }
             Message::Choke | Message::Unchoke | Message::Interested | Message::NotInterested => {
-                dst.ensure(4 + 1);
+                dst.reserve(4 + 1);
                 dst.put_u32::<BE>(1); // message length
                 dst.put_u8(message_id);
             }
@@ -213,7 +212,7 @@ impl tokio_io::codec::Encoder for BitTorrentPeerCodec {
                 offset,
                 length,
             } => {
-                dst.ensure(4 + 1 + 4 * 3);
+                dst.reserve(4 + 1 + 4 * 3);
                 dst.put_u32::<BE>(1 + 4 * 3); // message length
                 dst.put_u8(message_id);
                 dst.put_u32::<BE>(piece);

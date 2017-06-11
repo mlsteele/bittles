@@ -128,14 +128,16 @@ impl Fillable {
     /// Returns None if everything from then on is filled.
     pub fn first_unfilled_starting_at(&self, start: u64) -> Result<Option<u64>> {
         if start >= self.size {
-            bail!("first_unfilled_starting_at start:{} >= size:{}", start, self.size);
+            bail!("first_unfilled_starting_at start:{} >= size:{}",
+                  start,
+                  self.size);
         }
         if self.contents.is_empty() {
             return Ok(Some(start));
         }
         for interval in self.contents.iter() {
             if interval.end >= start {
-                return Ok(Some(interval.end))
+                return Ok(Some(interval.end));
             }
         }
         Ok(None)

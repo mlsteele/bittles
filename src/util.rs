@@ -1,5 +1,4 @@
 use byteorder::{BigEndian, ByteOrder};
-use bytes::{BufMut, BytesMut};
 use errors::Result;
 use futures::{Poll, Stream};
 use futures::future;
@@ -252,21 +251,6 @@ impl<T, E, X> FutureEnhanced<T, E> for X
 {
     fn bxed(self) -> BxFuture<T, E> {
         return Box::new(self);
-    }
-}
-
-pub trait BytesMutEnhanced {
-    /// Make sure the buffer has at least so much capacity.
-    /// Convenience around `remaining_mut` and `reserve`.
-    fn ensure(&mut self, capacity: usize);
-}
-
-impl BytesMutEnhanced for BytesMut {
-    fn ensure(&mut self, capacity: usize) {
-        let x = self.remaining_mut();
-        if x < capacity {
-            self.reserve(capacity - x);
-        }
     }
 }
 
